@@ -4,8 +4,8 @@ This repo contains source code for the Project:65 homebrew computer project. The
 
 ## Contents
 
-*OS* The in-ROM OS and monitor. Includes device drivers for IO and disk. Built with the CA65 assembler.
-*DiskController* Driver for the ATmega328p-based SD-card controller. Build with the Arduino SDK.
+- **OS** - The in-ROM OS and monitor. Includes device drivers for IO and disk. Built with the CA65 assembler.
+- **DiskController** - Driver for the ATmega328p-based SD-card controller. Build with the Arduino SDK.
 
 [//]: # 
 
