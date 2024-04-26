@@ -27,11 +27,12 @@
 ;; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED 
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
-.export _commandline, RESET
+.export _commandline, RESET, crlf, print_printable
 ;.export program_address_high, program_address_low
 .import XModem, _outputstring, sendchar, readchar, print_hex
 .import _SETDEVICE, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
 .import getc, write, putc, open, close, set_filename, set_filemode, init_devices
+.import test_tokenizer
 
 ; TODO
 ;
@@ -192,8 +193,10 @@ loop:
 
 outputsection:
         lda #0
-        sta buffer,x	; terminating 0
+        sta buffer,x			; add terminating 0
 		
+
+
 		printstring crlf
 		
 		lda #<save_command
@@ -207,6 +210,10 @@ skip11:
         bne skip2
         jmp process_g
 skip2:
+		cmp #'t'
+		bne skip2a
+		jmp test_tokenizer
+skip2a:
 		cmp #'x'
         bne skip3
         jmp process_x
@@ -269,24 +276,15 @@ skip12:
 
         jmp _commandline
 		
-ls_command:
-.asciiz "ls "
-mkdir_command:
-.asciiz "mkdir "
-rmdir_command:
-.asciiz "rmdir "
-rm_command:
-.asciiz "rm"
-m_command:
-.asciiz "m "
-more_command:
-.asciiz "more"
-load_command:
-.asciiz "load "
-save_command:
-.asciiz "save "
-uptime_command:
-.asciiz "uptime"
+ls_command:		.asciiz "ls "
+mkdir_command:	.asciiz "mkdir "
+rmdir_command:	.asciiz "rmdir "
+rm_command:		.asciiz "rm"
+m_command:		.asciiz "m "
+more_command:	.asciiz "more"
+load_command:	.asciiz "load "
+save_command:	.asciiz "save "
+uptime_command:	.asciiz "uptime"
 
 .endproc
 
@@ -359,11 +357,6 @@ open_success:
 
 		jmp _commandline
 .endproc
-
-;filemode_read:
-;.asciiz "r"
-;filemode_write:
-;.asciiz "w"
 
 
 
@@ -479,12 +472,12 @@ filename_ok:
 		ldx #>(buffer+5)
 		jsr set_filename
 		
-		lda #2
+		lda #2				; We'll explicitly grab device #2, the 1st file slot.
 		jsr _SETDEVICE
 		jsr	open
 		
 		; check return code which is in A
-		cmp #'0'
+		cmp #'0'			; CJ BUG. text '0'? double check that!
 		bne open_success
 		
 		; an error happened.  Print the command response & return to command line
@@ -498,15 +491,15 @@ open_success:
 		lda #2
 		jsr		_SETDEVICE
 		
-		lda		program_address_low
-		sta		ptr1
-		jsr		putc
-		lda		program_address_high
+		lda		program_address_low		; The first two bytes of the saved file are
+		sta		ptr1					; the address where it should be loaded into
+		jsr		putc					; memory. Output those, and set ptr1 to the
+		lda		program_address_high 	; start location
 		sta		ptr1h
 		jsr		putc
 
-loop:	lda		(ptr1)
-		jsr 	putc
+loop:	lda		(ptr1)					; Loop & write data until we hit the
+		jsr 	putc					; program_end pointer.
 		; compare to end of data
 		lda		ptr1
 		cmp		program_end_low
@@ -522,10 +515,9 @@ notdone:
 		bra		loop
 
 done:
-		jsr		close
+		jsr		close					; close device 2
 		jmp 	_commandline
 .endproc
-
 
 
 .proc UptimeCommand

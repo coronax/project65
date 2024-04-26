@@ -33,7 +33,7 @@ CR		=        $0d                ; carriage return
 LF      =        $0a                ; line feed
 ESC     =        $1b                ; ESC to exit
 
-;Device Filemode values - these are copies of UNIX values
+;Device Filemode values - These match the values used by CC65's fcntl.inc.
 O_RDONLY        = $01
 O_WRONLY        = $02
 O_RDWR          = $03
@@ -70,10 +70,9 @@ tod_int_counter = $0208
 spi_readbuffer	= $0209	; Used by spibyte
 spi_writebuffer	= $020a	; Used by spibyte
 
-;chartosend=$20b         ; store send char for sendchar - is this still used?
-program_address_low=$20f
-program_address_high=$210
-program_end_low=$211
+program_address_low=$20f		; pointers to begin/end of current loaded 
+program_address_high=$210		
+program_end_low=$211			; *Is end the last byte or one past?
 program_end_high=$212
 
 ; monitor variables
@@ -92,19 +91,19 @@ DEVICE_FILENAME   = $0223   ; filename for an open request
 DEVICE_FILENAMEH  = $0224
 DEVICE_FILEMODE   = $0225   ; Unix-style filemode for an open request.
 
-buffer          = $0240	  ; command line input buffer from $240 to $27f.
-argc		    = $0280   ; The input buffer will be parsed into a c-like
-argv0L          = $0281   ; argv array, with the pointers pointing into
-argv0H          = $0282   ; the buffer itself. The actual partsing code 
-argv1L          = $0283   ; has not yet been written!
+buffer          = $0240	  	; Command line input buffer from $240 to $27f.
+argc		    = $0280   	; The input buffer will be parsed into a c-like
+argv0L          = $0281   	; argv array, with the pointers pointing into
+argv0H          = $0282   	; the buffer itself.  
+argv1L          = $0283
 argv1H          = $0284
 argv2L          = $0285
 argv2H          = $0286
 argv3L          = $0287
 argv3H          = $0288
 
-DEVTAB          = $0290   ; This is the devtab we actually use. 64 bytes, up to $02d0
-NEXT_UNUSED     = $02D0
+DEVTAB          = $0290   	; This is the devtab we actually use. 64 bytes, up to $02d0
+NEXT_UNUSED     = $02D0		; One past end of DEVTAB
 
 ;=============================================================================
 ; Page Three usage
