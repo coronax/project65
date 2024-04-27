@@ -34,7 +34,7 @@
 .export PutChar, GetChar, SET_FILENAME, SET_FILEMODE, DEV_OPEN, DEV_CLOSE, DEV_PUTC, DEV_GETC
 
 .segment "kernal_table"
-FILE_OPEN:
+FILE_OPEN:				;FFD1
         jmp openfile
 SET_FILENAME:                           ;FFD4
         jmp set_filename

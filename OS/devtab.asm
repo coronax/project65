@@ -33,7 +33,8 @@
 .import SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC
 .import SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE
 .import _outputstring
-.export init_io, getc, putc, _SETDEVICE, set_filename, set_filemode, open, close, write, init_devices, openfile
+.export init_io, getc, putc, _SETDEVICE, set_filename, set_filemode, open
+.export close, write, init_devices, openfile
 
 
 ;CURRENT_DEVICE    = $0220
@@ -57,6 +58,7 @@
 	
 .rodata
 .asciiz"rodata"
+
 
 .align 16
 DEVTAB_TEMPLATE:		; an array of DEVENTRY structs

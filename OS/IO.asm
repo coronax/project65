@@ -84,7 +84,7 @@
 		STZ rdptr buffername
 .endmacro
 		
-; Write A to the read buffer
+; Write A to the write buffer
 ; Note that this doesn't test if there's enough room.
 ; Modifies X
 .macro WRITEBUFFER buffername
@@ -495,6 +495,7 @@ doneoutputstring:
 		
 ; prints the 2-character hex representation
 ; of the value in A
+; Uses A, X
 print_hex:
 			pha
 		   ; sta temp

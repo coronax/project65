@@ -133,7 +133,8 @@ eof:
 ;=============================================================================
 ; SD_PUTC
 ;=============================================================================
-; Put the character in A to the current DEVICE_CHANNEL. 
+; Write the character in A to the current SD DEVICE_CHANNEL. 
+; Returns the character written in A.
 ; Uses A,X
 ;=============================================================================
 .proc SD_PUTC
@@ -192,7 +193,8 @@ done:		nop
 ; Filemode is byte value, not a character representation.
 ; The file mode is now a 1-byte set of UNIX-like flags, and probably not 
 ; printable. But also not ever 0!
-; Uses A,X,Y
+; Uses: A,X,Y
+;       ptr1
 ;=============================================================================
 .proc SD_OPEN
 			lda 	DEVICE_CHANNEL
