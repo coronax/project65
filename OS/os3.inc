@@ -28,6 +28,7 @@
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
 .pc02			; allow 65c02 instructions
+.feature string_escapes
 
 CR		=        $0d                ; carriage return
 LF      =        $0a                ; line feed

@@ -32,7 +32,7 @@
 .import XModem, _outputstring, sendchar, readchar, print_hex
 .import _SETDEVICE, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
 .import getc, write, putc, open, close, set_filename, set_filemode, init_devices
-.import test_tokenizer
+.import TokenizeCommandLine, test_tokenizer
 
 ; TODO
 ;
@@ -194,99 +194,65 @@ loop:
 outputsection:
         lda #0
         sta buffer,x			; add terminating 0
-		
-
 
 		printstring crlf
-		
-		lda #<save_command
-		ldx #>save_command
-		jsr IsPrefix
-		beq skip11
-		jmp ProcessSaveCommand
-skip11:
-        lda buffer
-		cmp #'g'
-        bne skip2
-        jmp process_g
-skip2:
-		cmp #'t'
-		bne skip2a
-		jmp test_tokenizer
-skip2a:
-		cmp #'x'
-        bne skip3
-        jmp process_x
-skip3:
-		cmp #'b'
-        bne skip4
-        jmp process_b
-skip4:
-		lda #<m_command
-		ldx #>m_command
-		jsr IsPrefix
-		beq skip4a
-		jmp process_m
-skip4a:
-		lda #<ls_command
-		ldx #>ls_command
-		jsr IsPrefix
-		beq skip5
-		jmp ProcessFileCommand
-skip5:
-		lda #<mkdir_command
-		ldx #>mkdir_command
-		jsr IsPrefix
-		beq skip6
-		jmp ProcessFileCommand
-skip6:
-		lda #<rmdir_command
-		ldx #>rmdir_command
-		jsr IsPrefix
-		beq skip7
-		jmp ProcessFileCommand
-skip7:
-		lda #<rm_command
-		ldx #>rm_command
-		jsr IsPrefix
-		beq skip8
-		jmp ProcessFileCommand
-skip8:
-		lda #<more_command
-		ldx #>more_command
-		jsr IsPrefix
-		beq skip9
-		jmp ProcessMoreCommand
-skip9:
-		lda #<load_command
-		ldx #>load_command
-		jsr IsPrefix
-		beq skip10
-		jmp ProcessLoadCommand
-skip10:
-		lda #<uptime_command
-		ldx #>uptime_command
-		jsr IsPrefix
-		beq skip12
-		jmp UptimeCommand
-skip12:	
+
+		jsr TokenizeCommandLine
+
+		lda argc				; if we have 0 arguments, just return to _commandline
+		beq _commandline
+
+		lda argv0L				; save argv to ptr1 so we can do string compares...
+		sta ptr1
+		lda argv0H
+		sta ptr1h
+
+.macro DispatchCommandLine string, fn
+.local skip
+		lda #<string
+		ldx #>string
+		jsr IsEqual
+		beq skip
+		jmp fn
+skip:
+.endmacro
+
+		DispatchCommandLine g_command, process_g
+		DispatchCommandLine x_command, process_x
+		DispatchCommandLine b_command, process_b
+		DispatchCommandLine m_command, process_m
+		DispatchCommandLine load_command, ProcessLoadCommand
+		DispatchCommandLine ls_command, ProcessFileCommand
+		DispatchCommandLine mkdir_command, ProcessFileCommand
+		DispatchCommandLine more_command, ProcessMoreCommand
+		DispatchCommandLine rm_command, ProcessFileCommand
+		DispatchCommandLine rmdir_command, ProcessFileCommand
+		DispatchCommandLine save_command, ProcessSaveCommand
+		DispatchCommandLine uptime_command, UptimeCommand
+
+		; Print a message for unrecognized command
         printstring string1
         printstring buffer
         printstring string2
 
-        jmp _commandline
-		
-ls_command:		.asciiz "ls "
-mkdir_command:	.asciiz "mkdir "
-rmdir_command:	.asciiz "rmdir "
+        jmp _commandline	; and loop back to the start of the processor
+
+b_command:		.asciiz "b"
+g_command:		.asciiz "g"		
+ls_command:		.asciiz "ls"
+mkdir_command:	.asciiz "mkdir"
+rmdir_command:	.asciiz "rmdir"
 rm_command:		.asciiz "rm"
-m_command:		.asciiz "m "
+m_command:		.asciiz "m"
 more_command:	.asciiz "more"
-load_command:	.asciiz "load "
-save_command:	.asciiz "save "
+load_command:	.asciiz "load"
+save_command:	.asciiz "save"
 uptime_command:	.asciiz "uptime"
+x_command:		.asciiz "x"
 
 .endproc
+
+
 
 
 ; Returns 1 in A if the string in AX is a prefix of the command buffer
@@ -308,12 +274,73 @@ done_false:
 		rts
 .endproc 
 
+
+; Returns 1 in A if the string in AX equals the string in ptr1
+; Uses: AY
+;       ptr1, ptr2
+.proc IsEqual
+		sta ptr2
+		stx ptr2h
+		ldy #0
+loop:	lda (ptr1),y
+		cmp (ptr2),y
+		bne done_false	; didn't match buffer, return false
+		cmp #0
+		beq done_true	; end of string, return true
+		iny
+		bra loop
+done_true:
+		lda #1
+		rts
+done_false:
+		lda #0
+		rts
+.endproc 
+
+
 .proc ProcessFileCommand
-;printstring string1
-;		printstring buffer
-;		printstring string2
-		; write command buffer
-		writedevice 1,buffer
+
+;		writedevice 1,buffer
+		lda #1
+		jsr _SETDEVICE
+
+		; we need to write each argument, separated by spaces
+		lda argc
+		pha				; store counter on stack
+		lda #<argv0L
+		sta ptr2
+		lda #>argv0L
+		sta ptr2h		; initialize pointer to argument
+
+output_arg:
+		ldy #0			; ptr2 points to one of the argv pointers.
+		lda (ptr2),y	; Dereference and save pointer to actual string
+		sta ptr1		; in ptr1.
+		iny
+		lda (ptr2),y
+		sta ptr1h
+		dey				; and set Y back to 0.
+output_char:
+		lda (ptr1),y
+		beq next_arg
+		jsr putc
+		iny
+		bra output_char
+next_arg:
+		pla				; get counter
+;		cmp argc		; and compare to argc
+		dec
+		beq doneoutputargs
+;		dec
+		pha				; decrement and save counter
+		lda #' '
+		jsr putc		; put a space between arguments
+		inc ptr2
+		inc ptr2		; point to next argument
+		bra output_arg
+doneoutputargs:
+		lda #0
+		jsr putc		; and finally an end-of-string
 
 ; read result.  Probably just "1" or "0". sigh.
 		jsr PrintStream
@@ -322,16 +349,18 @@ done_false:
 .endproc
 
 
+
 .proc ProcessMoreCommand
 		; setup
 		lda #O_RDONLY
 		jsr set_filemode
-		lda	buffer+4
-		bne filename_ok	; if eos, use default filename. or error. or something.
+		lda argc
+		cmp #2
+		beq filename_ok
 		jmp syntax_error
 filename_ok:
-		lda #<(buffer+5)
-		ldx #>(buffer+5)
+		lda argv1L
+		ldx argv1H
 		jsr set_filename
 		
 		lda #2
@@ -364,12 +393,13 @@ open_success:
 		; setup
 		lda #O_RDONLY
 		jsr set_filemode
-		lda	buffer+4
-		bne filename_ok	; if eos, use default filename. or error. or something.
+		lda argc
+		cmp #2
+		beq filename_ok
 		jmp syntax_error
 filename_ok:
-		lda #<(buffer+5)
-		ldx #>(buffer+5)
+		lda argv1L
+		ldx argv1H
 		jsr set_filename
 		
 		lda #2
@@ -452,10 +482,11 @@ program_return:
 		nop
 		jmp _commandline
 		
-loadmsg:   .byte "Program located at $", 0
-loadmsg2:	.byte " to $", 0
+loadmsg:   	.asciiz "Program located at $"
+loadmsg2:	.asciiz " to $"
 
 .endproc
+
 
 ; not sure how to make this work because of xmodem overwriting the 
 ; command buffer. hm.  let's try just saving the current program in
@@ -464,12 +495,13 @@ loadmsg2:	.byte " to $", 0
 		; setup
 		lda #(O_WRONLY | O_TRUNC | O_CREAT)
 		jsr set_filemode
-		lda	buffer+4
-		bne filename_ok	; if eos, use default filename. or error. or something.
+		lda argc
+		cmp #2
+		beq filename_ok
 		jmp syntax_error
 filename_ok:
-		lda #<(buffer+5)
-		ldx #>(buffer+5)
+		lda argv1L
+		ldx argv1H
 		jsr set_filename
 		
 		lda #2				; We'll explicitly grab device #2, the 1st file slot.
@@ -528,7 +560,7 @@ done:
 		printstring msg
 		jmp _commandline
 msg:
-.byte " seconds", CR, LF, 0
+.asciiz " seconds\r\n"
 .endproc
 
 
@@ -549,18 +581,13 @@ msg:
 .endproc
 
 
-breakpoint_removed_msg:
-		.byte CR, LF, "Breakpoint removed", CR, LF, 0
-breakpoint_not_set_msg:
-		.byte CR, LF, "Breakpoint not set", CR, LF, 0
-breakpoint_set_msg:
-		.byte CR, LF, "Breakpoint set", CR, LF, 0
-
 ; add/remove breakpoint
 .proc process_b
-        cpx #1  ; one character = remove breakpoint_high
-        bne not_remove_command
-        ; trying to remove breakpoint.
+        ;cpx #1  ; one character = remove breakpoint_high
+		lda argc
+		cmp #1
+        bne set_breakpoint_command
+        ; 0 args - trying to remove breakpoint.
         jsr remove_breakpoint
         beq breakpoint_not_set
         printstring breakpoint_removed_msg
@@ -568,20 +595,13 @@ breakpoint_set_msg:
 breakpoint_not_set:
         printstring breakpoint_not_set_msg
         jmp _commandline
-not_remove_command:
-        cpx #6  ; buffer len in x
-        bcs syntax_ok1
+set_breakpoint_command:
+		cmp #2
+		beq syntax_ok1
         jmp syntax_error
 syntax_ok1:
-        lda buffer+1
-        cmp #' '
-        beq syntax_ok2
-        jmp syntax_error
-syntax_ok2:
-        ; ok, now parse a hexadecimal address
-        ; and put it somewhere. um...
-        ldx #>(buffer+2)
-        lda #<(buffer+2)
+		lda argv1L
+		ldx argv1H
         jsr parse_address
         sta ptr1        ; saving parsed value in ptr1
         stx ptr1h
@@ -598,12 +618,16 @@ syntax_ok2:
         sta (ptr1),y
         printstring breakpoint_set_msg
         jmp _commandline
-.endproc
-		
-; remove breakpoint checks if a breakpoint is set
-; and if so removes it.  Returns 1 in A if it 
-; removed a breakpoint, and 0 if there wasn't one
-; to remove.
+
+breakpoint_removed_msg:
+		.asciiz "\r\nBreakpoint removed\r\n"
+breakpoint_not_set_msg:
+		.asciiz "\r\nBreakpoint not set\r\n"
+breakpoint_set_msg:
+		.asciiz "\r\nBreakpoint set\r\n"
+
+; If a breakpoint is set, remove it and return 1 in A.
+; If not, return 0.
 remove_breakpoint:
         lda breakpoint_low
         ldx breakpoint_high
@@ -625,30 +649,24 @@ remove_needed:
         sta breakpoint_high
         lda #1  ; return value 1 - a breakpoint was removed
         rts
+.endproc
+
 
 
 .proc process_m
 .if 1
-        cpx #6  ; buffer len in x
-		; cj bug, trying to compare v. os1
-;		bcc syntax_error
-        bcs @noerror
-;		jmp syntax_error
-@noerror:
-        lda buffer+1
-        cmp #' '
-        beq syntax_ok
+		lda argc
+		cmp #2
+		beq syntax_ok
         jmp syntax_error
 syntax_ok:
         ; ok, now parse a hexadecimal address
         ; and put it somewhere. um...
-        ldx #>(buffer+2)
-        lda #<(buffer+2)
+		lda argv1L
+		ldx argv1H
         jsr parse_address
         sta ptr2
         stx ptr2h
-		
-		;printstring crlf
 		
 		; print 8 rows of 8 characters of output
 		; this is broken because print_hex uses x.
@@ -777,10 +795,11 @@ syntax_error:
 ; Argument is a hex address.
 ;=============================================================================
 .proc process_g
-        cpx #6  ; minimum buffer len
-        bcs read_location
-		lda buffer+1
+		lda argc
+		cmp #1
 		beq use_program_start
+		cmp #2
+		beq read_location
 		jmp syntax_error
 use_program_start:
 		lda program_address_low
@@ -789,15 +808,8 @@ use_program_start:
 		sta ptr2h
 		bra run_code
 read_location:
-        lda buffer+1
-        cmp #' '
-        beq syntax_ok
-        jmp syntax_error
-syntax_ok:
-        ; ok, now parse a hexadecimal address
-        ; and put it somewhere. um...
-        ldx #>(buffer+2)
-        lda #<(buffer+2)
+		lda argv1L
+		ldx argv1H
         jsr parse_address
         sta ptr2
         stx ptr2h
@@ -881,12 +893,12 @@ xmodem_error:
         printstring xmodem_error_msg
         jmp _commandline
 		
-xmsg:   .byte "Program located at $", 0
-xmsg2:	.byte " to $", 0
+xmsg:   .asciiz "Program located at $"
+xmsg2:	.asciiz " to $"
 xmodem_escaped_msg:
-        .byte "Quitting XModem upload", CR, LF, 0
+        .asciiz "Quitting XModem upload\r\n"
 xmodem_error_msg:
-        .byte "Error during XModem upload", CR, LF, 0		
+        .asciiz "Error during XModem upload\r\n"		
 .endproc
 
 		
