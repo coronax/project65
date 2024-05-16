@@ -363,7 +363,7 @@ filename_ok:
 		ldx argv1H
 		jsr set_filename
 		
-		lda #2
+		lda #3
 		jsr _SETDEVICE
 		jsr	open
 		
@@ -379,7 +379,7 @@ filename_ok:
 		
 open_success:
 		; read file content on device 2
-		lda #2
+		lda #3
 		jsr		_SETDEVICE
 		jsr PrintStream
 		writedevice 0, crlf
@@ -797,35 +797,50 @@ syntax_error:
 .proc process_g
 		lda argc
 		cmp #1
-		beq use_program_start
-		cmp #2
-		beq read_location
-		jmp syntax_error
-use_program_start:
-		lda program_address_low
-		sta ptr2
+		bne read_address
+;		beq use_program_start
+;		cmp #2
+;		beq read_location
+;		jmp syntax_error
+use_default_address:
+		lda program_address_low		; No arguments; use default program
+		sta ptr2					; location.
 		lda program_address_high
 		sta ptr2h
 		bra run_code
-read_location:
-		lda argv1L
+read_address:						; Read program start address from the 
+		lda argv1L					; command line (argv[1]).
 		ldx argv1H
         jsr parse_address
         sta ptr2
         stx ptr2h
-;        printstring crlf
 run_code:		
-		; fake an indirect jsr by pushing return address manually 
-		; and then doing an indirect jmp
+		; Fake an indirect jsr by pushing return address to stack manually 
+		; and then doing an indirect jmp.
 		lda #>program_return
 		pha
+		;jsr print_hex
 		lda #<program_return
 		pha
+		;jsr print_hex
+		stz program_ret		; Initialize program return value.
 		jmp	(ptr2)
-
 program_return:
-		nop
-		jmp SOFT_RESET ;_commandline
+		nop					; The jsr return will skip over this instruction.
+		printstring return_msg
+		lda program_ret
+		jsr print_hex
+		printstring crlf
+		; Jumping to soft reset at the end of the program is the safest option
+		; because it guarantees we'll be in a known state regardless of how
+		; messily the program ended. But any output still in the write buffer
+		; will be cut off.
+		;jmp SOFT_RESET 
+		; So for now we'll try the less safe option of just returning into the
+		; command line routine.
+		jmp _commandline
+
+return_msg:	.asciiz "Program returned "
 .endproc
 
 
