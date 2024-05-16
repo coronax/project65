@@ -102,7 +102,7 @@ argv2L          = $0285
 argv2H          = $0286
 argv3L          = $0287
 argv3H          = $0288
-
+program_ret     = $0289		; return code of called program
 DEVTAB          = $0290   	; This is the devtab we actually use. 64 bytes, up to $02d0
 NEXT_UNUSED     = $02D0		; One past end of DEVTAB
 
