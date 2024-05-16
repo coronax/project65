@@ -348,8 +348,8 @@ class CommandResponse: public FileIO
   
 };
 
-FileIO* command_io = 0;
-FileIO* channel_io[2];
+//FileIO* command_io = 0;
+FileIO* channel_io[3] = {NULL,NULL,NULL};
 
 
 
@@ -378,7 +378,7 @@ void setup()
   if (!SD.begin(10))
     ErrorFlash();
     
-  channel_io[0] = channel_io[1] = 0;
+  //channel_io[0] = channel_io[1] = 0;
   
   //Serial.begin (9600);
 }
