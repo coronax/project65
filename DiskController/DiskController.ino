@@ -42,9 +42,14 @@
   // Todo: Management of current directory, cwd
   // support, etc.
 
+  // Todo: Refactor to get rid of dynamic allocation.
+
   // Todo: detect SD Card removal/insertion?
  
-  // DONE: Change file open flags to a more Unix-style bitmask.
+  // Todo: Make error reporting easier to integrate
+  // with C.
+
+  // Todo: seek/tell?
 
 #include <SD.h>
 #include <stdlib.h>
@@ -532,9 +537,11 @@ void loop()
         //Serial.print (command_buffer);
         //Serial.println ("'\n");
         command_buffer_index = 0;
+        delete (channel_io[0]);
+        channel_io[0] = nullptr;
+
         if (!strncmp (command_buffer, "ls ", 3))
         {
-          delete (channel_io[0]);
           channel_io[0] = new DirectoryReader (command_buffer + 3);
         }
         else if (!strncmp (command_buffer, "o",1))
