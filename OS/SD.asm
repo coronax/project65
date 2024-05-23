@@ -221,11 +221,13 @@ done:		nop
 			jsr		SD_GETC			; read back the return code
 			; return code is in A.  1 is true, 0 is false
 			
-			cmp #1					; if success, set filemode in DEVTAB
+			cmp #'1'				; if success, set filemode in DEVTAB
 			bne return
+			tay						; save result code
 			ldx DEVICE_OFFSET
 			lda DEVICE_FILEMODE
 			sta DEVTAB + DEVENTRY::FILEMODE, X
+			tya						; restore result code
 
 return:		plx						; pull dev channel off of stack
 			stx		DEVICE_CHANNEL	; restore device channel
