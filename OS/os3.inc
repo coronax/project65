@@ -52,6 +52,8 @@ O_EXCL          = $80
 	PUTC      .word
 	OPEN	  .word
 	CLOSE	  .word
+	SEEK	  .word
+	TELL	  .word
 .endstruct
 
 ;=============================================================================

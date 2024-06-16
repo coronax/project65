@@ -494,7 +494,7 @@ doneoutputstring:
 		
 		
 ; prints the 2-character hex representation
-; of the value in A
+; of the value in A. Does not preserve A!
 ; Uses A, X
 print_hex:
 			pha

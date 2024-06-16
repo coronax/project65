@@ -30,10 +30,15 @@
 .import _commandline, _outputstring, putc, getc, print_hex 
 .import readchar, sendchar, _SETDEVICE, open, close
 .import set_filename, set_filemode, openfile
+.import dev_seek, dev_tell, dev_get_status
 .import RESET
 .export PutChar, GetChar, SET_FILENAME, SET_FILEMODE, DEV_OPEN, DEV_CLOSE, DEV_PUTC, DEV_GETC
+.export DEV_SEEK, DEV_TELL, DEV_GET_STATUS
 
 .segment "kernal_table"
+DEV_SEEK:       jmp dev_seek            ; FFC8
+DEV_TELL:       jmp dev_tell            ; FFCB
+DEV_GET_STATUS: jmp dev_get_status      ; FFCE
 FILE_OPEN:				;FFD1
         jmp openfile
 SET_FILENAME:                           ;FFD4

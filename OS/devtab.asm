@@ -31,10 +31,11 @@
 
 .include "os3.inc"
 .import SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC
-.import SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE
+.import SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 .import _outputstring
 .export init_io, getc, putc, _SETDEVICE, set_filename, set_filemode, open
 .export close, write, init_devices, openfile
+.export dev_seek, dev_tell, dev_get_status
 
 
 ;CURRENT_DEVICE    = $0220
@@ -54,6 +55,8 @@
 ;	PUTC      .word
 ;	OPEN	  .word
 ;	CLOSE	  .word
+;   SEEK      .word
+;   TELL      .word
 ;.endstruct
 	
 .rodata
@@ -63,19 +66,19 @@
 .align 16
 DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 .byte 0, 0	; Serial Port
-.word SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN
+.word SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NULLFN, NULLFN
 
 .align 16
 .byte 0, 0	; SD Card IO Channel
-.word SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE
+.word SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NULLFN, NULLFN
 
 .align 16
 .byte 1, 0	; SD Card Data Channel 1
-.word NULLFN, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE
+.word NULLFN, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
 .align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word NULLFN, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE
+.word NULLFN, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
 
 .code
@@ -106,6 +109,7 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 
 
 ; devnum in A
+; Modifies AX
 .proc 		_SETDEVICE
 			sta		CURRENT_DEVICE
 			clc
@@ -171,8 +175,25 @@ return:		rts
 .proc close
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::CLOSE,X)
-			;ldx DEVICE_OFFSET
-			;stz DEVTAB + DEVENTRY::FILEMODE,x
+.endproc
+
+
+.proc dev_seek
+			ldx DEVICE_OFFSET
+			jmp (DEVTAB + DEVENTRY::SEEK,X)
+.endproc
+
+
+.proc dev_tell
+			ldx DEVICE_OFFSET
+			jmp (DEVTAB + DEVENTRY::TELL,X)
+.endproc
+
+
+.proc dev_get_status
+			ldx DEVICE_OFFSET
+			lda DEVTAB + DEVENTRY::FILEMODE,X
+			rts
 .endproc
 
 
@@ -182,7 +203,6 @@ return:		rts
 .proc set_filename
 			sta DEVICE_FILENAME
 			stx DEVICE_FILENAME+1
-			;printstring DEVICE_FILENAME no no pointer deref
 			rts
 .endproc
 
@@ -232,7 +252,7 @@ doneoutputstring:
 			ldx		DEVICE_OFFSET
 			cmp		DEVTAB + DEVENTRY::FILEMODE,X
 			beq		do_open
-			lda		#$ff
+			lda		#$ff			; No available file descriptors
 			rts
 do_open:
 			pla		
@@ -243,6 +263,7 @@ do_open:
 			jsr		open
 			beq		on_fail
 			lda		CURRENT_DEVICE
+			ldx		#0				; because cc65 __fopen wants us to return a 16-bit value
 			rts
 on_fail:	lda		#$ff
 			rts
