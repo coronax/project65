@@ -83,11 +83,42 @@ void ErrorFlash()
  
 void InterruptHandler()
 {
-  ++signal_received;
+  //++signal_received;
+  signal_received = 1;
 }
 
 char ReadByte ()
 {
+  while (digitalRead(ca2) == HIGH)
+    ;
+
+  char result = (digitalRead(data0)==HIGH)?1:0;
+  result += (digitalRead(data1)==HIGH)?2:0;
+  result += (digitalRead(data2)==HIGH)?4:0;
+  result += (digitalRead(data3)==HIGH)?8:0;
+  result += (digitalRead(data4)==HIGH)?16:0;
+  result += (digitalRead(data5)==HIGH)?32:0;
+  result += (digitalRead(data6)==HIGH)?64:0;
+  result += (digitalRead(data7)==HIGH)?128:0;
+
+  noInterrupts();
+  signal_received = 0;
+  interrupts();
+
+  digitalWrite (ca1, HIGH);
+
+  // we'll do this to make sure we don't somehow miss the positive edge of ca2
+  do {} while (signal_received == 0);
+  noInterrupts();
+  //--signal_received;
+  signal_received = 0;
+  interrupts();
+
+  digitalWrite (ca1, LOW);
+
+  return result;
+
+#if 0
   do {} while (signal_received == 0);
   noInterrupts();
   --signal_received;
@@ -127,11 +158,62 @@ char ReadByte ()
   digitalWrite (ca1, HIGH);  // pulse indicates we've read
 
   return result;
+#endif
 }
 
 
 void WriteByte (char data)
 {
+  while (digitalRead(ca2) == HIGH)
+    ;
+
+  pinMode (data0, OUTPUT);
+  pinMode (data1, OUTPUT);
+  pinMode (data2, OUTPUT);
+  pinMode (data3, OUTPUT);
+  pinMode (data4, OUTPUT);
+  pinMode (data5, OUTPUT);
+  pinMode (data6, OUTPUT);
+  pinMode (data7, OUTPUT);
+
+  digitalWrite (data0, data & 0x01);
+  digitalWrite (data1, data & 0x02);
+  digitalWrite (data2, data & 0x04);
+  digitalWrite (data3, data & 0x08);
+  digitalWrite (data4, data & 0x10);
+  digitalWrite (data5, data & 0x20);
+  digitalWrite (data6, data & 0x40);
+  digitalWrite (data7, data & 0x80);
+
+  noInterrupts();
+  signal_received = 0;
+  interrupts();
+
+  // data is ready to be read, de-assert wait
+  digitalWrite (ca1, HIGH);
+
+  // we'll do this to make sure we don't somehow miss the positive edge of ca2
+  do {} while (signal_received == 0);
+  noInterrupts();
+  //--signal_received;
+  signal_received = 0;
+  interrupts();
+
+  pinMode (data0, INPUT);
+  pinMode (data1, INPUT);
+  pinMode (data2, INPUT);
+  pinMode (data3, INPUT);
+  pinMode (data4, INPUT);
+  pinMode (data5, INPUT);
+  pinMode (data6, INPUT);
+  pinMode (data7, INPUT);
+
+
+  digitalWrite (ca1, LOW);
+
+
+#if 0
+
   pinMode (data0, OUTPUT);
   pinMode (data1, OUTPUT);
   pinMode (data2, OUTPUT);
@@ -157,6 +239,7 @@ void WriteByte (char data)
   noInterrupts();
   --signal_received;
   interrupts();
+#endif
 }
  
 
@@ -175,7 +258,7 @@ class FileIO
   public:
   virtual ~FileIO() {;}
   virtual int getChar() {return 0;}
-  virtual void putChar(char) {;}
+  virtual int putChar(char) {return 0;}
 };
 
 
@@ -268,11 +351,13 @@ class FileReader: public FileIO
     if (!file_open)
       return -1;
     int retval = file.read();
+    /*
     if (retval == -1)
     {
       file.close();
       file_open = false;
     }
+    */
     return retval;
   }
   
@@ -302,12 +387,14 @@ class FileWriter: public FileIO
       file.close();
   }
   
-  virtual void putChar(char ch)
+  virtual int putChar(char ch)
   {
     if (file_open)
     {
-      file.write (ch);
+      return file.write (ch);
     }
+    else
+      return 0;
   }
   
   virtual int getChar()
@@ -353,7 +440,7 @@ class CommandResponse: public FileIO
   
 };
 
-//FileIO* command_io = 0;
+
 FileIO* channel_io[3] = {NULL,NULL,NULL};
 
 
@@ -370,13 +457,15 @@ void setup()
   pinMode (data7, INPUT);
   pinMode (ca1, OUTPUT);
   pinMode (ca2, INPUT);
-  attachInterrupt (digitalPinToInterrupt(ca2)/*0*/, InterruptHandler, FALLING);
+  attachInterrupt (digitalPinToInterrupt(ca2)/*0*/, InterruptHandler, RISING);
   
   pinMode (13,OUTPUT);
   digitalWrite (13,LOW);
+
+  //digitalWrite (ca1, LOW);
   
   delayMicroseconds(50);
-  digitalWrite (ca1, HIGH);
+  digitalWrite (ca1, LOW);
   digitalWrite (ca2, LOW);
   
   pinMode (10, OUTPUT);
@@ -407,7 +496,6 @@ void setup()
  */
 class CommandResponse* HandleFileOpen (char* command_buffer)
 {
-  //char* colon_location = strchr (command_buffer,':');
   if (strlen(command_buffer) < 4)
   {
     return new CommandResponse ("0Bad Command Format", 19);

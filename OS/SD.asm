@@ -27,16 +27,22 @@
 ;; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED 
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
+; 2024: Updated the signalling with CA1 and CA2 to be closer to EPP
+; handshaking. This was because of occasional stalls during file reads.
+; Not 100% sure if this was a complete fix, or if there are other
+; issues involved.
+; See http://wearcam.org/seatsale/programs/www.beyondlogic.org/epp/epp.htm
+; for more info.
+
 .include "OS3.inc"
-;.import DEVICE_CHANNEL, DEVICE_FILEMODE, DEVICE_FILENAME
-.export SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE
+.export SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
 .pc02
 		
 .proc SD_INIT
-			lda 	#%00001010
-			sta		VIA_PCR		; set CA2 to pulse mode, CA1 negative edge trigger
-			sta		VIA_DDRA	; start in read mode
+			lda 	#%00001111
+			sta		VIA_PCR		; set CA2 high, CA1 positive edge trigger
+			stz		VIA_DDRA	; start in read mode
 			lda 	VIA_ACR		
 			;ora		#1
 			and		#%11111110
@@ -51,9 +57,59 @@ wait:
 			and		#$2
 			beq		wait
 			lda #$02
-			sta VIA_IFR
+			sta VIA_IFR			; Clear IFR bit 1
 .endscope
 .endmacro
+
+.macro WriteByte
+.scope
+; problem: how do we make sure CA1 is low before we do this? or are we just safe?
+			ldx 	#$ff		; DDR to write mode
+			stx		VIA_DDRA
+
+			sta		VIA_DATAA
+
+			lda		#%00001101
+			sta		VIA_PCR		; set CA2 low, CA1 still positive edge trigger
+
+			Wait_CA1 			; CA1 high means peripheral has read the data
+
+			stz		VIA_DDRA	; back to read mode
+			ldx		#%00001111
+			stx		VIA_PCR		; set CA2 high, CA1 still positive edge trigger
+
+			nop 
+			nop
+			nop
+.endscope
+.endmacro
+
+
+.macro ReadByte
+.scope
+; problem: how do we make sure CA1 is low before we do this? or are we just safe?
+			;ldx 	#$ff		; DDR to write mode
+			;stx		VIA_DDRA
+
+			;sta		VIA_DATAA
+
+			lda		#%00001101
+			sta		VIA_PCR		; set CA2 low, CA1 still positive edge trigger
+
+			Wait_CA1 			; CA1 high means peripheral has prepared the data
+
+			lda			VIA_DATAA
+
+			;stz		VIA_DDRA	; back to read mode
+			ldx		#%00001111
+			stx		VIA_PCR		; set CA2 high, CA1 still positive edge trigger
+
+			nop
+			nop 
+			nop
+.endscope
+.endmacro
+
 
 ;=============================================================================
 ; SD_GETC
@@ -65,6 +121,33 @@ wait:
 ; Returns the character in A.  If EOF was received, X is $ff and carry is set.
 ; Uses A,X
 ;=============================================================================
+.proc SD_GETC
+		lda DEVICE_CHANNEL
+		WriteByte
+		lda		#$19		; "gimme a byte" command
+		WriteByte
+		ReadByte			; status 0 = good, 1 = not yet, 2 = eof
+
+		cmp		#1			; test for no character available
+		beq		nochar
+		cmp 	#2			; test for eof
+		beq		eof
+
+		ReadByte			; read actual character
+		sec					; read a byte, so set carry
+		ldx		#$00
+		rts
+nochar:
+		clc
+		rts					; no char read, so clear carry & return
+eof:
+		sec					; I guess eof counts as a token for this purpose, so set carry
+		lda 	#$ff
+		ldx		#$FF		; carry set & x=$FF equals EOF.
+		rts
+.endproc
+
+.if 0		
 .proc SD_GETC
 		
 			lda 	#%00001010
@@ -122,11 +205,12 @@ nochar:
 			clc
 			rts					; no char read, so clear carry & return
 eof:
-			sec
+			sec					; I guess eof counts as a token for this purpose, so set carry
 			lda 	#$40
 			ldx		#$FF		; carry set & x=$FF equals EOF.
 			rts
 .endproc
+.endif
 
 
 
@@ -137,6 +221,20 @@ eof:
 ; Returns the character written in A.
 ; Uses A,X
 ;=============================================================================
+.proc SD_PUTC
+			phy					; save y, and save A in y
+			tay
+			lda 	DEVICE_CHANNEL
+			WriteByte
+			lda 	#$18 		; "send a byte" command
+			WriteByte
+			tya
+			WriteByte
+			tya					; return character written
+			ply					; restore y
+			rts
+.endproc
+.if 0
 .proc SD_PUTC
 			tax					; save character for later
 			
@@ -159,7 +257,7 @@ eof:
 			txa					; put character back in A
 			rts
 .endproc
-
+.endif
 
 
 ; writes a pointer to SD_PUTC without the trailing 0
@@ -266,4 +364,13 @@ return:		plx						; pull dev channel off of stack
 
 			rts
 .endproc
-			
+
+
+.proc SD_SEEK
+		rts
+.endproc
+
+.proc SD_TELL
+		rts
+.endproc
+
