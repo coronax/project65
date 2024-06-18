@@ -56,6 +56,25 @@ O_EXCL          = $80
 	TELL	  .word
 .endstruct
 
+; Control block for the TTY device. The tricky part is that it needs to be 
+; able to quickly switch between the input and output devices and restore
+; itself at the end.
+.struct TTY_BLOCK
+	MODE	.byte	; 0 for raw, 1 for cooked?
+	ECHO	.byte	; 0 for off, 1 for on.
+	IN_DEV	.byte	; device index for input source
+	IN_CHAN .byte	
+	IN_OFFSET .byte
+	OUT_DEV	.byte	; device index for output (which we need for echo etc)
+	OUT_CHAN .byte
+	OUT_OFFSET .byte
+	SELF_DEV .byte
+	SELF_CHAN .byte
+	SELF_OFFSET .byte
+	TMPA		.byte ; temporary storage of get retval
+	TMPX		.byte
+.endstruct
+
 ;=============================================================================
 ; Page Two usage
 ;=============================================================================
@@ -94,7 +113,9 @@ DEVICE_FILENAME   = $0223   ; filename for an open request
 DEVICE_FILENAMEH  = $0224
 DEVICE_FILEMODE   = $0225   ; Unix-style filemode for an open request.
 
-buffer          = $0240	  	; Command line input buffer from $240 to $27f.
+TTY             = $0226		; sizeof TTY_BLOCK
+
+buffer          = $0240	  	; Command line input buffer from $240 to $27f. 64 bytes.
 argc		    = $0280   	; The input buffer will be parsed into a c-like
 argv0L          = $0281   	; argv array, with the pointers pointing into
 argv0H          = $0282   	; the buffer itself.  
@@ -106,7 +127,7 @@ argv3L          = $0287
 argv3H          = $0288
 program_ret     = $0289		; return code of called program
 DEVTAB          = $0290   	; This is the devtab we actually use. 64 bytes, up to $02d0
-NEXT_UNUSED     = $02D0		; One past end of DEVTAB
+NEXT_UNUSED     = $02F0		; One past end of DEVTAB
 
 ;=============================================================================
 ; Page Three usage

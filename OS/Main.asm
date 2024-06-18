@@ -31,7 +31,7 @@
 ;.export program_address_high, program_address_low
 .import XModem, _outputstring, sendchar, readchar, print_hex
 .import _SETDEVICE, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
-.import getc, write, putc, open, close, set_filename, set_filemode, init_devices
+.import dev_getc, write, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
 .import TokenizeCommandLine, test_tokenizer
 
 ; TODO
@@ -323,7 +323,7 @@ output_arg:
 output_char:
 		lda (ptr1),y
 		beq next_arg
-		jsr putc
+		jsr dev_putc
 		iny
 		bra output_char
 next_arg:
@@ -334,13 +334,13 @@ next_arg:
 ;		dec
 		pha				; decrement and save counter
 		lda #' '
-		jsr putc		; put a space between arguments
+		jsr dev_putc		; put a space between arguments
 		inc ptr2
 		inc ptr2		; point to next argument
 		bra output_arg
 doneoutputargs:
 		lda #0
-		jsr putc		; and finally an end-of-string
+		jsr dev_putc		; and finally an end-of-string
 
 ; read result.  Probably just "1" or "0". sigh.
 		jsr PrintStream
@@ -365,7 +365,7 @@ filename_ok:
 		
 		lda #3
 		jsr _SETDEVICE
-		jsr	open
+		jsr	dev_open
 		
 		; check return code which is in A
 		cmp #'0'
@@ -404,7 +404,7 @@ filename_ok:
 		
 		lda #2
 		jsr _SETDEVICE
-		jsr	open
+		jsr	dev_open
 		
 		; check return code which is in A
 		cmp #'0'
@@ -421,21 +421,28 @@ open_success:
 		lda #2
 		jsr		_SETDEVICE
 		
-get1:	jsr 	getc
+get1:	jsr 	dev_getc
 		bcc		get1
 		sta		program_address_low
 		sta		ptr1
-get2:	jsr		getc
+get2:	jsr		dev_getc
 		bcc 	get2
 		sta		program_address_high
 		sta		ptr1h
 		
 		ldy		#0
-loop:	jsr		getc
+loop:	jsr		dev_getc
 		bcc		loop
 		cpx		#$FF
 		beq 	done
 		sta		(ptr1),y
+
+		;jsr		print_hex
+;		ldx #$ff ; ok, our problem is a timing problem, because this delay seems to fix it.
+;dly:	nop
+;		dex
+;		bne dly
+
 		iny
 		bne		loop
 		inc		ptr1h
@@ -506,7 +513,7 @@ filename_ok:
 		
 		lda #2				; We'll explicitly grab device #2, the 1st file slot.
 		jsr _SETDEVICE
-		jsr	open
+		jsr	dev_open
 		
 		; check return code which is in A
 		cmp #'0'			; CJ BUG. text '0'? double check that!
@@ -525,13 +532,13 @@ open_success:
 		
 		lda		program_address_low		; The first two bytes of the saved file are
 		sta		ptr1					; the address where it should be loaded into
-		jsr		putc					; memory. Output those, and set ptr1 to the
+		jsr		dev_putc					; memory. Output those, and set ptr1 to the
 		lda		program_address_high 	; start location
 		sta		ptr1h
-		jsr		putc
+		jsr		dev_putc
 
 loop:	lda		(ptr1)					; Loop & write data until we hit the
-		jsr 	putc					; program_end pointer.
+		jsr 	dev_putc					; program_end pointer.
 		; compare to end of data
 		lda		ptr1
 		cmp		program_end_low
@@ -547,7 +554,7 @@ notdone:
 		bra		loop
 
 done:
-		jsr		close					; close device 2
+		jsr		dev_close					; close device 2
 		jmp 	_commandline
 .endproc
 
@@ -567,7 +574,7 @@ msg:
 ; a klugey utility function that prints a file stream to the console,
 ; using hardcoded serial out.
 .proc PrintStream
-@loop:	jsr getc
+@loop:	jsr dev_getc
 		bcc @loop
 		cpx #$FF		; check for EOF
 		beq @done2

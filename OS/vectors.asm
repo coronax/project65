@@ -27,8 +27,8 @@
 ;; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED 
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
-.import _commandline, _outputstring, putc, getc, print_hex 
-.import readchar, sendchar, _SETDEVICE, open, close
+.import _commandline, _outputstring, dev_putc, dev_getc, print_hex 
+.import readchar, sendchar, _SETDEVICE, dev_open, dev_close
 .import set_filename, set_filemode, openfile
 .import dev_seek, dev_tell, dev_get_status
 .import RESET
@@ -46,9 +46,9 @@ SET_FILENAME:                           ;FFD4
 SET_FILEMODE:                           ;FFD7
         jmp set_filemode
 DEV_OPEN:                               ;FFDA
-        jmp open                        ; open current device
+        jmp dev_open                    ; open current device
 DEV_CLOSE:                              ;FFDD
-        jmp close                       ; close current device
+        jmp dev_close                   ; close current device
 CommandLine:                            ;FFE0
         jmp _commandline
 OutputString:                           ;FFE3
@@ -60,11 +60,11 @@ GetChar:                                ;FFE9
 PutHexit:                               ;FFEC
         jmp print_hex
 DEV_PUTC:				;FFEF
-		jmp putc                ; writes character to current device
+	jmp dev_putc                ; writes character to current device
 DEV_GETC:				;FFF2
-		jmp getc                ; reads character from current device
+	jmp dev_getc                ; reads character from current device
 SETDEVICE:				;FFF5
-		jmp _SETDEVICE          ; sets current device - see devtab.asm
+	jmp _SETDEVICE          ; sets current device - see devtab.asm
 
 ; pad out to $FFFA
 .byte $00, $00 

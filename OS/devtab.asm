@@ -32,9 +32,10 @@
 .include "os3.inc"
 .import SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC
 .import SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.import TTY_INIT, TTY_GETC, TTY_PUTC,  TTY_OPEN, TTY_CLOSE
 .import _outputstring
-.export init_io, getc, putc, _SETDEVICE, set_filename, set_filemode, open
-.export close, write, init_devices, openfile
+.export init_io, dev_getc, dev_putc, _SETDEVICE, set_filename, set_filemode, dev_open
+.export dev_close, write, init_devices, openfile
 .export dev_seek, dev_tell, dev_get_status
 
 
@@ -80,6 +81,14 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 .byte 2, 0	; SD Card Data Channel 2
 .word NULLFN, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
+.align 16
+.byte 1, 0	; Empty Device 1
+.word TTY_INIT, TTY_GETC, TTY_PUTC, TTY_OPEN, TTY_CLOSE, NULLFN, NULLFN
+
+.align 16
+.byte 2, 0	; Empty Device 2
+.word NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NULLFN
+DEVTAB_TEMPLATE_END:
 
 .code
 
@@ -92,7 +101,7 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 ; Completely initializes all devices and the DEVTAB structure
 .proc init_devices
-		ldx #64				; copy DEVTAB_TEMPLATE to DEVTAB in RAM
+		ldx #(DEVTAB_TEMPLATE_END - DEVTAB_TEMPLATE);64				; copy DEVTAB_TEMPLATE to DEVTAB in RAM
 loop:	lda DEVTAB_TEMPLATE-1,X
 		sta DEVTAB-1,X
 		dex
@@ -103,6 +112,9 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 		jsr init_io
 		lda #1				; init SD card
 		jsr	_SETDEVICE
+		jsr init_io
+		lda #4
+		jsr _SETDEVICE
 		jsr init_io
 		rts
 .endproc
@@ -139,7 +151,7 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; If EOF is reached, AX holds $FFFF
 ; Otherwise, returns character in A (and 0 in X).
 ; Modifies AX
-.proc getc
+.proc dev_getc
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::GETC,X)
 .endproc
@@ -148,7 +160,7 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 
 ; Writes the character in A to the current device.
 ; Modifies AX
-.proc putc
+.proc dev_putc
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::PUTC,X)
 .endproc
@@ -158,21 +170,15 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Uses DEVICE_FILENAME and DEVICE_FILEMODE
 ; Modifies AXY
 ; On success, returns 1 in A. On Failure, 0
-.proc open
+.proc dev_open
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::OPEN,X)
-;			cmp #1
-;			bne return
-;			ldx DEVICE_OFFSET
-;			lda DEVICE_FILEMODE
-;			sta DEVTAB + DEVENTRY::FILEMODE, x
-return:		rts
 .endproc
 
 
 ; Closes the current device.
 ; Modifies AXY
-.proc close
+.proc dev_close
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::CLOSE,X)
 .endproc
@@ -221,7 +227,7 @@ return:		rts
 			stx		ptr1h
 			ldy 	#0
 outloop:	lda 	(ptr1),y
-			jsr		putc
+			jsr		dev_putc
 			cmp #0;lda (ptr1),y				 ; check eos after we've written 
 			beq		doneoutputstring ; it to the stream
 			iny
@@ -260,7 +266,7 @@ do_open:
 			plx
 			pla	
 			jsr		set_filename
-			jsr		open
+			jsr		dev_open
 			beq		on_fail
 			lda		CURRENT_DEVICE
 			ldx		#0				; because cc65 __fopen wants us to return a 16-bit value
