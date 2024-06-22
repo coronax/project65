@@ -113,18 +113,17 @@
 		AND #%01111111
 .endmacro
 
-SERIAL_GETC = GetChar
-SERIAL_PUTC = PutChar
-; these names are also used in a couple places. sigh.
-readchar = GetChar	
-sendchar = PutChar
+; These names are used in places where I want to send data out the
+; serial port without using the device interface.
+readchar = SERIAL_GETC	
+sendchar = SERIAL_PUTC
 
 
 ; wrapper around putting a character into the write buffer.
 ; busy waits if the buffer is full.  Note that for EhBasic,
 ; the character we wrote needs to still be in A when we
 ; return.
-.proc PutChar
+.proc SERIAL_PUTC
 		pha
 		phx
 		pha			; store A because COUNTBUFFER will overwrite
@@ -155,7 +154,7 @@ wait:
 
 
 ; wrapper around getting a character from the receive buffer
-.proc GetChar
+.proc SERIAL_GETC
 		phx
 		sei	; stop interrupts for a moment
 		COUNTBUFFER rbuffer
