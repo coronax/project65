@@ -126,7 +126,7 @@ argv2H          = $0286
 argv3L          = $0287
 argv3H          = $0288
 program_ret     = $0289		; return code of called program
-DEVTAB          = $0290   	; This is the devtab we actually use. 64 bytes, up to $02d0
+DEVTAB          = $0290   	; This is the devtab we actually use. 96 bytes, up to $02f0
 NEXT_UNUSED     = $02F0		; One past end of DEVTAB
 
 ;=============================================================================
@@ -138,8 +138,22 @@ rbuffer 	= $0300		; read buffer. 128 bytes
 wbuffer 	= $0380		; write buffer. 128 bytes
 
 ;=============================================================================
+; Page Four usage
+;=============================================================================
+
+;wr_ttybuffer = $0400
+;rd_ttybuffer = $0401
+;cl_ttybuffer = $0402
+ttybuffer = $0400 		; TTY input buffer. Temporary. 128 bytes so we can resuse some serial port stuff?
+
+;=============================================================================
 ; Page Zero usage
 ;=============================================================================
+
+wr_ttybuffer = $00df
+rd_ttybuffer = $00e0
+cl_ttybuffer = $00e1
+
 
 wr_rbuffer 	= $00e2		; Max3100 read buffer read index
 rd_rbuffer 	= $00e3
