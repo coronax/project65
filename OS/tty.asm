@@ -126,6 +126,7 @@
         stz TTY + TTY_BLOCK::SELF_CHAN
         lda #64
         sta TTY + TTY_BLOCK::SELF_OFFSET
+        stz TTY + TTY_BLOCK::EOF
 
         INITBUFFER ttybuffer
         rts
@@ -148,6 +149,8 @@ cooked:
         jmp TTY_GETC_COOKED
 .endproc
 
+
+
 .proc TTY_GETC_RAW
         lda TTY + TTY_BLOCK::IN_DEV
         sta CURRENT_DEVICE
@@ -162,7 +165,11 @@ cooked:
         cpx #$FF
         beq return_w_carry      ; read eof, no echo
         lda TTY + TTY_BLOCK::ECHO
-        beq return_w_carry      ; echo off, no echo
+        ;beq return_w_carry      ; echo off, no echo
+        bne not_eof
+        stx TTY + TTY_BLOCK::EOF
+        bra return_w_carry
+not_eof:
         ; echo is on, so write to out
         lda TTY + TTY_BLOCK::OUT_DEV
         sta CURRENT_DEVICE
@@ -194,18 +201,38 @@ return:
 .endproc
 
 
+
 .proc TTY_GETC_COOKED
         ; in cooked mode, we still need to read a character from in_dev and
         ; process it, but it may not be the character we return (and we may
         ; not return anything, if we're waiting for an enter).
         ; To prevent a deadlock, if the buffer is full we might need to 
         ; overwrite the last char? Or simply declare that the end of line?
+        ; Note that the processing here is entirely dependent on the client
+        ; application calling getc, which means it can't do any interrupt-
+        ; style processing like Ctrl-C. To fix that we would probably need
+        ; something interrupt based.
+
+        ; first off, if we've already received an EOF, we don't need to do
+        ; anything on the input side
+        lda TTY + TTY_BLOCK::EOF
+        beq not_eof
+        jmp return_char
+not_eof:
+
         lda TTY + TTY_BLOCK::IN_DEV
         sta CURRENT_DEVICE
         lda TTY + TTY_BLOCK::IN_CHAN
         sta DEVICE_CHANNEL
         lda TTY + TTY_BLOCK::IN_OFFSET
         sta DEVICE_OFFSET
+
+        ; Is there any available room in the buffer for a character?
+        COUNTBUFFER ttybuffer
+        cmp #126
+        bmi have_room_1
+        jmp return_char
+have_room_1:
         jsr dev_getc
         ;bcc return_char         ; no character to process
         bcs skip1
@@ -215,9 +242,18 @@ skip1:
         stx TTY + TTY_BLOCK::TMPX
         ;bcc return              ; No character read, no echo, no carry
         cpx #$FF
-        beq return_char          ; read eof, no echo, no char to process
+        ;beq return_char          ; read eof, no echo, no char to process
+        bne not_eof2
+        stx TTY + TTY_BLOCK::EOF
+        jmp return_char
+not_eof2:
 
         ; We have the newest read character in A (& TMPA). What do we do with it?
+
+        ; If the current line is too long we might starve. So we'll set a maximum
+        ; length of 63 bytes plus room for a cr. This works with the command-line
+        ; buffer length limit in the kernel.
+
         ; We'll start with just considering carriage return and backspace.
         cmp #8  ; backspace
         bne check_for_cr
@@ -257,6 +293,14 @@ check_for_esc:
         ; and for this one we're just gonna follow thru to the writebuffer. shrug.
 
 handle_regular_char:
+
+        ; check if we have room in the current line for a regular character
+        ; If not, we'll reject it and output a beep
+        
+        COUNTCL ttybuffer
+        cmp #63
+        bpl echo_bell
+        lda TTY + TTY_BLOCK::TMPA
         WRITEBUFFER ttybuffer
 echo:
         ; Let's see what we need to echo
@@ -303,28 +347,17 @@ return_char:
         ; Is there an available character to return?
         COUNTAVAIL ttybuffer
         bne char_available
+        ; If the device is closed when we get here, should we return EOF?
+        ; How should we deal with a notional end of stream? Maybe that 
+        ; should be a separate flag.
         clc
         rts     ; no character available, just return with carry clear
 char_available:
         READBUFFER ttybuffer
+        ldx #0
         sec
         rts
 
-
-;return_w_carry:
-;        sec                     ; We read a character, so we need to return with carry set
-;return:
-;        ; make tty the active device again
-;        lda TTY + TTY_BLOCK::SELF_DEV
-;        sta CURRENT_DEVICE
-;        lda TTY + TTY_BLOCK::SELF_CHAN
-;        sta DEVICE_CHANNEL
-;        lda TTY + TTY_BLOCK::SELF_OFFSET
-;        sta DEVICE_OFFSET
-;        lda TTY + TTY_BLOCK::TMPA
-;        ldx TTY + TTY_BLOCK::TMPX
-
-;        rts
 .endproc
 
 

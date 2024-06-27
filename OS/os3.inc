@@ -73,6 +73,7 @@ O_EXCL          = $80
 	SELF_OFFSET .byte
 	TMPA		.byte ; temporary storage of get retval
 	TMPX		.byte
+	EOF			.byte ; nonzero if the source has sent EOF
 .endstruct
 
 ;=============================================================================
