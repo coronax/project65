@@ -32,7 +32,7 @@
 ; with a simple raw mode with the option to echo characters back to the
 ; output, which is what I most need just at the moment.
 
-.import dev_getc, dev_putc
+.import dev_getc, dev_putc, sendchar
 .export TTY_INIT, TTY_OPEN, TTY_CLOSE, TTY_GETC, TTY_PUTC
 
 .include "os3.inc"
@@ -213,6 +213,9 @@ return:
         ; style processing like Ctrl-C. To fix that we would probably need
         ; something interrupt based.
 
+        ; we need to save y because we clobber it during the echo part
+        phy
+
         ; first off, if we've already received an EOF, we don't need to do
         ; anything on the input side
         lda TTY + TTY_BLOCK::EOF
@@ -244,7 +247,7 @@ skip1:
         cpx #$FF
         ;beq return_char          ; read eof, no echo, no char to process
         bne not_eof2
-        stx TTY + TTY_BLOCK::EOF
+        stx TTY + TTY_BLOCK::EOF  ; mark that we've hit EOF
         jmp return_char
 not_eof2:
 
@@ -257,19 +260,7 @@ not_eof2:
         ; We'll start with just considering carriage return and backspace.
         cmp #8  ; backspace
         bne check_for_cr
-        ; we need to handle a backspace character. If there are any characters in 
-        ; current line, we can roll back wrptr and store a 0.
-        COUNTCL ttybuffer
-        beq echo_bell         ; No characters to delete, so we just ignore this.
-        lda wr_ttybuffer
-        dec
-        and #%01111111
-        sta wr_ttybuffer
-        bra echo
-
-echo_bell:
-        lda #7
-        sta TTY + TTY_BLOCK::TMPA
+        jsr HandleBackspace
         bra echo
 
 check_for_cr:
@@ -280,7 +271,13 @@ check_for_cr:
         ; pos cl_ttybuffer
         WRITEBUFFER ttybuffer
         lda wr_ttybuffer
-        sta cl_ttybuffer
+        sta cl_ttybuffer        ; advance the start of 'current' line to after the CR
+        lda #13;'\r'            ; Echo a newline after a carriage return.
+        sta TTY + TTY_BLOCK::ECHO_BUF0
+        lda #10;'\n'
+        sta TTY + TTY_BLOCK::ECHO_BUF1
+        lda #2
+        sta TTY + TTY_BLOCK::ECHO_COUNT
         bra echo
 
 check_for_esc:
@@ -288,9 +285,10 @@ check_for_esc:
         bne handle_regular_char
         ; For now we're going to handle an escape char from the terminal by swapping
         ; it to a '+'
-        lda #'+'
-        sta TTY + TTY_BLOCK::TMPA
-        ; and for this one we're just gonna follow thru to the writebuffer. shrug.
+        ;lda #'+'
+        ;sta TTY + TTY_BLOCK::TMPA
+        jsr ReadEscapeSequence
+        bra echo
 
 handle_regular_char:
 
@@ -301,7 +299,17 @@ handle_regular_char:
         cmp #63
         bpl echo_bell
         lda TTY + TTY_BLOCK::TMPA
+        sta TTY + TTY_BLOCK::ECHO_BUF0
         WRITEBUFFER ttybuffer
+        lda #1
+        sta TTY + TTY_BLOCK::ECHO_COUNT
+        bra echo
+echo_bell:
+        lda #7
+        sta TTY + TTY_BLOCK::ECHO_BUF0
+        lda #1
+        sta TTY + TTY_BLOCK::ECHO_COUNT
+
 echo:
         ; Let's see what we need to echo
         lda TTY + TTY_BLOCK::ECHO
@@ -313,24 +321,16 @@ echo:
         sta DEVICE_CHANNEL
         lda TTY + TTY_BLOCK::OUT_OFFSET
         sta DEVICE_OFFSET
-        lda TTY + TTY_BLOCK::TMPA
-        ldx TTY + TTY_BLOCK::TMPX
+
+        ldy #0
+        bra start_echo_loop
+echo_loop:
+        lda TTY + TTY_BLOCK::ECHO_BUF0,y
         jsr dev_putc
-        cmp #13;'\r'            ; Echo a newline after a carriage return.
-        bne test_for_backspace
-        lda #10;'\n'
-        jsr dev_putc
-        bra return_char
-test_for_backspace:
-        cmp #8
-        bne return_char
-        ;lda #127 ;DEL   ; followup backspace with a delete.
-        ;jsr dev_putc
-        ; that didn't work. let's try a space and another backspace
-        lda #' '
-        jsr dev_putc
-        lda #8
-        jsr dev_putc
+        iny
+start_echo_loop:
+        cpy TTY + TTY_BLOCK::ECHO_COUNT
+        bne echo_loop
 
 return_char:
         ; is there an available character to return?
@@ -341,8 +341,6 @@ return_char:
         sta DEVICE_CHANNEL
         lda TTY + TTY_BLOCK::SELF_OFFSET
         sta DEVICE_OFFSET
-        ;lda TTY + TTY_BLOCK::TMPA
-        ;ldx TTY + TTY_BLOCK::TMPX
 
         ; Is there an available character to return?
         COUNTAVAIL ttybuffer
@@ -350,12 +348,66 @@ return_char:
         ; If the device is closed when we get here, should we return EOF?
         ; How should we deal with a notional end of stream? Maybe that 
         ; should be a separate flag.
+        ply
         clc
         rts     ; no character available, just return with carry clear
 char_available:
         READBUFFER ttybuffer
+        ;jsr sendchar
         ldx #0
+        ply
         sec
+        rts
+
+.endproc
+
+
+.proc HandleBackspace
+        ; we need to handle a backspace character. If there are any characters in 
+        ; current line, we can roll back wrptr and store a 0.
+        COUNTCL ttybuffer
+        beq echo_bell         ; No characters to delete, so we just ignore this.
+        lda wr_ttybuffer
+        dec
+        and #%01111111
+        sta wr_ttybuffer
+        lda #8 ; backspace char
+        sta TTY + TTY_BLOCK::ECHO_BUF0
+        lda #' '
+        sta TTY + TTY_BLOCK::ECHO_BUF1
+        lda #8
+        sta TTY + TTY_BLOCK::ECHO_BUF2
+        lda #3
+        sta TTY + TTY_BLOCK::ECHO_COUNT
+        rts
+echo_bell:
+        lda #7
+        sta TTY + TTY_BLOCK::ECHO_BUF0
+        lda #1
+        sta TTY + TTY_BLOCK::ECHO_COUNT
+        ;sta TTY + TTY_BLOCK::TMPA
+        ;bra echo
+        rts
+.endproc
+
+.proc ReadEscapeSequence
+        ; Entering this function, we'll have already read the esc character.
+        ; For now, I want to focus on recognizing cursor keys and ignoring
+        ; them so that they don't mess up line editing. We can think about
+        ; actually supporting left/right cursor some other time. So
+        ; we're looking for [ followed by A, B, C, or D. This could get 
+        ; really complex if we wanted to be complete, but I don't think
+        ; that's necessary.
+get1:
+        jsr dev_getc
+        bcc get1
+        cmp #'['
+        bne done
+get2:
+        jsr dev_getc
+        bcc get2
+done:
+        stz TTY + TTY_BLOCK::ECHO_COUNT
         rts
 
 .endproc

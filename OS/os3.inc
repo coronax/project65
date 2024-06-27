@@ -74,6 +74,11 @@ O_EXCL          = $80
 	TMPA		.byte ; temporary storage of get retval
 	TMPX		.byte
 	EOF			.byte ; nonzero if the source has sent EOF
+	ECHO_COUNT 	.byte ; # of bytes to echo
+	ECHO_BUF0   .byte ; Some characters will be echoed as multiple characters
+	ECHO_BUF1   .byte ; so we use ECHO_BUF* to keep track of them.
+	ECHO_BUF2   .byte
+	ECHO_BUF3   .byte
 .endstruct
 
 ;=============================================================================
