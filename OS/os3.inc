@@ -47,7 +47,7 @@ O_EXCL          = $80
 .struct DEVENTRY
 	CHANNEL   .byte
 	FILEMODE  .byte   ; contains file mode if the dev is open.
-	INIT      .word
+	IOCTL     .word
 	GETC	  .word
 	PUTC      .word
 	OPEN	  .word

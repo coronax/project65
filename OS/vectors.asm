@@ -30,41 +30,29 @@
 .import _commandline, _outputstring, dev_putc, dev_getc, print_hex 
 .import readchar, sendchar, _SETDEVICE, dev_open, dev_close
 .import set_filename, set_filemode, openfile
-.import dev_seek, dev_tell, dev_get_status
+.import dev_ioctl, dev_seek, dev_tell, dev_get_status
 .import RESET
 .export PutChar, GetChar, SET_FILENAME, SET_FILEMODE, DEV_OPEN, DEV_CLOSE, DEV_PUTC, DEV_GETC
 .export DEV_SEEK, DEV_TELL, DEV_GET_STATUS
 
 .segment "kernal_table"
+DEV_IOCTL:      jmp dev_ioctl           ; FFC5
 DEV_SEEK:       jmp dev_seek            ; FFC8
 DEV_TELL:       jmp dev_tell            ; FFCB
 DEV_GET_STATUS: jmp dev_get_status      ; FFCE
-FILE_OPEN:				;FFD1
-        jmp openfile
-SET_FILENAME:                           ;FFD4
-        jmp set_filename
-SET_FILEMODE:                           ;FFD7
-        jmp set_filemode
-DEV_OPEN:                               ;FFDA
-        jmp dev_open                    ; open current device
-DEV_CLOSE:                              ;FFDD
-        jmp dev_close                   ; close current device
-CommandLine:                            ;FFE0
-        jmp _commandline
-OutputString:                           ;FFE3
-        jmp _outputstring
-PutChar:                                ;FFE6
-        jmp sendchar                    ; serial-specific routine
-GetChar:                                ;FFE9
-        jmp readchar                    ; serial-specific routine
-PutHexit:                               ;FFEC
-        jmp print_hex
-DEV_PUTC:				;FFEF
-	jmp dev_putc                ; writes character to current device
-DEV_GETC:				;FFF2
-	jmp dev_getc                ; reads character from current device
-SETDEVICE:				;FFF5
-	jmp _SETDEVICE          ; sets current device - see devtab.asm
+FILE_OPEN:      jmp openfile            ; FFD1
+SET_FILENAME:   jmp set_filename        ; FFD4
+SET_FILEMODE:   jmp set_filemode        ; FFD7
+DEV_OPEN:       jmp dev_open            ; FFDA open current device
+DEV_CLOSE:      jmp dev_close           ; FFDD close current device
+CommandLine:    jmp _commandline        ; FFE0
+OutputString:   jmp _outputstring       ; FFE3
+PutChar:        jmp sendchar            ; FFE6 serial-specific routine
+GetChar:        jmp readchar            ; FFE9 serial-specific routine
+PutHexit:       jmp print_hex           ; FFEC
+DEV_PUTC:       jmp dev_putc            ; FFEF writes character to current device
+DEV_GETC:       jmp dev_getc            ; FFF2 reads character from current device
+SETDEVICE:      jmp _SETDEVICE          ; FFF5 sets current device - see devtab.asm
 
 ; pad out to $FFFA
 .byte $00, $00 

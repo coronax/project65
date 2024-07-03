@@ -30,11 +30,11 @@
 ;; devtab.asm - generic device table support.
 
 .include "os3.inc"
-.import SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC
-.import SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
-.import TTY_INIT, TTY_GETC, TTY_PUTC,  TTY_OPEN, TTY_CLOSE
+.import SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC
+.import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.import TTY_IOCTL, TTY_GETC, TTY_PUTC,  TTY_OPEN, TTY_CLOSE
 .import _outputstring
-.export init_io, dev_getc, dev_putc, _SETDEVICE, set_filename, set_filemode, dev_open
+.export dev_ioctl, dev_getc, dev_putc, _SETDEVICE, set_filename, set_filemode, dev_open
 .export dev_close, write, init_devices, openfile
 .export dev_seek, dev_tell, dev_get_status
 
@@ -67,23 +67,23 @@
 .align 16
 DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 .byte 0, 0	; Serial Port
-.word SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NULLFN, NULLFN
+.word SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NULLFN, NULLFN
 
 .align 16
 .byte 0, 0	; SD Card IO Channel
-.word SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NULLFN, NULLFN
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NULLFN, NULLFN
 
 .align 16
 .byte 1, 0	; SD Card Data Channel 1
-.word NULLFN, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
 .align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word NULLFN, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
 .align 16
 .byte 1, 0	; Empty Device 1
-.word TTY_INIT, TTY_GETC, TTY_PUTC, TTY_OPEN, TTY_CLOSE, NULLFN, NULLFN
+.word TTY_IOCTL, TTY_GETC, TTY_PUTC, TTY_OPEN, TTY_CLOSE, NULLFN, NULLFN
 
 .align 16
 .byte 2, 0	; Empty Device 2
@@ -138,12 +138,25 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 
 
 ; Initialize the current device.
+; Init is shorthand for IOCTL with A=0
+; Returns 0 in AX for success, -1 for failure
 ; Modifies AX
 .proc init_io
+			lda #0
 			ldx DEVICE_OFFSET
-			jmp (DEVTAB + DEVENTRY::INIT,X)
+			jmp (DEVTAB + DEVENTRY::IOCTL,X)
 .endproc
 
+
+
+; Initialize the current device.
+; device-specific operation is in A
+; Returns 0 in AX for success, -1 for failure
+; Modifies AX
+.proc dev_ioctl
+			ldx DEVICE_OFFSET
+			jmp (DEVTAB + DEVENTRY::IOCTL,X)
+.endproc
 
 
 ; Get a character from the current device.

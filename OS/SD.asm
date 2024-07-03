@@ -35,11 +35,14 @@
 ; for more info.
 
 .include "OS3.inc"
-.export SD_INIT, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
 .pc02
 		
-.proc SD_INIT
+.proc SD_IOCTL
+			; Only current IOCTL for SD is init, A=0
+			cmp #0
+			bne error
 			lda 	#%00001111
 			sta		VIA_PCR		; set CA2 high, CA1 positive edge trigger
 			stz		VIA_DDRA	; start in read mode
@@ -47,6 +50,13 @@
 			;ora		#1
 			and		#%11111110
 			sta 	VIA_ACR		; disable latching for PA
+			lda #0
+			tax
+			rts
+error:
+			; This would probably be EINVAL if we had a way to set errno
+			lda #$FF
+			tax
 			rts
 .endproc
 
@@ -122,6 +132,8 @@ wait:
 ; Uses A,X
 ;=============================================================================
 .proc SD_GETC
+		;ldx DEVICE_OFFSET
+		;lda DEVTAB + DEVENTRY::CHANNEL,x
 		lda DEVICE_CHANNEL
 		WriteByte
 		lda		#$19		; "gimme a byte" command
@@ -147,70 +159,6 @@ eof:
 		rts
 .endproc
 
-.if 0		
-.proc SD_GETC
-		
-			lda 	#%00001010
-			sta		VIA_PCR		; set CA2 to pulse mode, CA1 negative edge trigger
-			lda 	#$ff		; write mode
-			sta		VIA_DDRA
-			
-			lda		DEVICE_CHANNEL
-			sta 	VIA_DATAA	; write channel to port A
-			; wait for arduino to read
-			Wait_CA1
-
-		; There's an interesting and alarming critical section here.
-		; When we transition from writing a byte (the command) to
-		; reading a byte (the status response) we're going to receive
-		; two pulses on CA1. If we're servicing an interrupt when
-		; that happens we could miss one of them and stall.
-		; We should try to find a tweek to the handshaking protocol
-		; that could prevent this.
-		; A possibly better alternative would be to change the Arduino
-		; side so that it doesn't acknowledge the command until it's
-		; put the response on the line, though this would mean both
-		; sides would have their pins in transmit mode simultaneously,
-		; which I am told is a bad thing.
-		; Would pullup resistors save us from an excess of current in
-		; that case?
-
-			sei					; Start critical section
-		
-			lda		#$19		; "gimme a byte" command
-			sta		VIA_DATAA	; write to port A, clear IFR
-			Wait_CA1			; wait for Arduino to read command
-
-			stz		VIA_DDRA	; read mode
-			Wait_CA1			; wait for arduino to write response
-
-			cli					; End critical section
-		
-			lda		VIA_DATAA	; read status byte (also clears IFR)
-								; status 0 = good, 1 = not yet, 2 = eof
-			;jsr 	$FFEC ;print hex
-			cmp		#1			; test for no character available
-			beq		nochar
-			cmp 	#2			; test for eof
-			beq		eof
-		
-			Wait_CA1
-			lda		VIA_DATAA	; retrieve actual character read, clear IFR 1
-
-			;jsr $FFEC
-			sec					; read a byte, so set carry
-			ldx		#$00
-			rts
-nochar:
-			clc
-			rts					; no char read, so clear carry & return
-eof:
-			sec					; I guess eof counts as a token for this purpose, so set carry
-			lda 	#$40
-			ldx		#$FF		; carry set & x=$FF equals EOF.
-			rts
-.endproc
-.endif
 
 
 
@@ -224,6 +172,8 @@ eof:
 .proc SD_PUTC
 			phy					; save y, and save A in y
 			tay
+			;ldx DEVICE_OFFSET
+			;lda DEVTAB + DEVENTRY::CHANNEL,x
 			lda 	DEVICE_CHANNEL
 			WriteByte
 			lda 	#$18 		; "send a byte" command
@@ -234,30 +184,6 @@ eof:
 			ply					; restore y
 			rts
 .endproc
-.if 0
-.proc SD_PUTC
-			tax					; save character for later
-			
-			lda 	#%00001010
-			sta		VIA_PCR		; set CA2 to pulse mode, CA1 negative edge trigger
-			lda 	#$ff		; set port to write mode
-			sta		VIA_DDRA
-			
-			lda		DEVICE_CHANNEL	
-			sta		VIA_DATAA	; write channel to port A
-			Wait_CA1			; wait for arduino to read
-			
-			lda		#$18		; "send a byte" command
-			sta		VIA_DATAA	; write to port A			
-			Wait_CA1			; wait for arduino to read
-
-			stx		VIA_DATAA	; write character to port
-			Wait_CA1			; wait for arduino to read
-			
-			txa					; put character back in A
-			rts
-.endproc
-.endif
 
 
 ; writes a pointer to SD_PUTC without the trailing 0
@@ -297,7 +223,7 @@ done:		nop
 .proc SD_OPEN
 			lda 	DEVICE_CHANNEL
 			pha		; store device channel for later
-			stz		DEVICE_CHANNEL	; switch to command channel to send open.
+			stz		DEVICE_CHANNEL	; send to command channel to send open.
 			tay		; device channel in y
 			
 			lda		#'o'

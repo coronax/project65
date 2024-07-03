@@ -33,7 +33,7 @@
 ; output, which is what I most need just at the moment.
 
 .import dev_getc, dev_putc, sendchar
-.export TTY_INIT, TTY_OPEN, TTY_CLOSE, TTY_GETC, TTY_PUTC
+.export TTY_IOCTL, TTY_OPEN, TTY_CLOSE, TTY_GETC, TTY_PUTC
 
 .include "os3.inc"
 
@@ -110,6 +110,66 @@
 		AND #%01111111
 .endmacro
 
+
+;=============================================================================
+; TTY_IOCTL
+; IO Control for tty driver
+;=============================================================================
+.proc TTY_IOCTL
+		cmp #0
+		beq init
+                cmp #32
+                beq echo_on
+                cmp #33
+                beq echo_off
+                cmp #34
+                beq raw_mode
+                cmp #35
+                beq cooked_mode
+error:
+		; This would probably be EINVAL if we had a way to set errno
+		lda #$FF
+		tax
+		rts
+init:           jmp TTY_INIT
+echo_on:        jmp ECHO_ON
+echo_off:       jmp ECHO_OFF
+raw_mode:       jmp RAW_MODE
+cooked_mode:    jmp COOKED_MODE
+.endproc
+
+
+.proc ECHO_ON
+        lda #1
+        sta TTY + TTY_BLOCK::ECHO
+        lda #0
+        tax
+        rts
+.endproc
+
+.proc ECHO_OFF
+        stz TTY + TTY_BLOCK::ECHO
+        lda #0
+        tax
+        rts
+.endproc
+
+.proc RAW_MODE
+        stz TTY + TTY_BLOCK::MODE       ; 0 for raw mode
+        lda #0
+        tax
+        rts
+.endproc
+
+.proc COOKED_MODE
+        lda #1                          ; 1 for cooked mode
+        sta TTY + TTY_BLOCK::MODE
+        INITBUFFER ttybuffer            ; throw out previously buffered IO
+        lda #0
+        tax
+        rts
+.endproc
+
 .proc TTY_INIT
         lda #1
         sta TTY + TTY_BLOCK::MODE
@@ -129,11 +189,22 @@
         stz TTY + TTY_BLOCK::EOF
 
         INITBUFFER ttybuffer
+        lda #0
+        tax
         rts
 .endproc
 
+
+
 .proc TTY_OPEN
+        lda #1
+        sta TTY + TTY_BLOCK::MODE ; open in cooked mode
+        lda #1
+        sta TTY + TTY_BLOCK::ECHO ; echo on
+        stz TTY + TTY_BLOCK::EOF  ; clear eof
         INITBUFFER ttybuffer
+        lda #'1'                ; we need to fix this return value at some point
+        ldx #0
         rts
 .endproc
 

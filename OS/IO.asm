@@ -28,7 +28,7 @@
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
 .export _outputstring, sendchar, readchar, print_hex 
-.export SERIAL_INIT, SERIAL_GETC, SERIAL_PUTC, Max3100_IRQ, Max3100_TimerIRQ
+.export SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, Max3100_IRQ, Max3100_TimerIRQ
 
 .include "os3.inc"
 
@@ -253,6 +253,23 @@ done:
 
 
 ;=============================================================================
+; SERIAL_IOCTL
+; IO Control for serial driver
+;=============================================================================
+.proc SERIAL_IOCTL
+		cmp #0
+		bne error
+		jmp SERIAL_INIT
+error:
+		; This would probably be EINVAL if we had a way to set errno
+		lda #$FF
+		tax
+		rts
+.endproc
+
+
+
+;=============================================================================
 ; SERIAL_INIT
 ; Device initialization for Max3100 UART
 ;=============================================================================
@@ -281,6 +298,8 @@ done:
 		; was the above setting ss high part of my trouble? doesn't make sense...
 
         jsr Max3100_Init
+		lda #0
+		tax
 		rts
 .endproc
 
