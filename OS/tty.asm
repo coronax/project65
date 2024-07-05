@@ -110,62 +110,55 @@
 		AND #%01111111
 .endmacro
 
+IO_INIT        = 0
+IO_ECHO_ON     = 32
+IO_ECHO_OFF    = 33
+IO_RAW_MODE    = 34
+IO_COOKED_MODE = 35
 
 ;=============================================================================
 ; TTY_IOCTL
 ; IO Control for tty driver
 ;=============================================================================
 .proc TTY_IOCTL
-		cmp #0
-		beq init
-                cmp #32
-                beq echo_on
-                cmp #33
-                beq echo_off
-                cmp #34
-                beq raw_mode
-                cmp #35
-                beq cooked_mode
+	cmp #IO_INIT
+	beq init
+        cmp #IO_ECHO_ON
+        beq echo_on
+        cmp #IO_ECHO_OFF
+        beq echo_off
+        cmp #IO_RAW_MODE
+        beq raw_mode
+        cmp #IO_COOKED_MODE
+        beq cooked_mode
 error:
-		; This would probably be EINVAL if we had a way to set errno
-		lda #$FF
-		tax
-		rts
-init:           jmp TTY_INIT
-echo_on:        jmp ECHO_ON
-echo_off:       jmp ECHO_OFF
-raw_mode:       jmp RAW_MODE
-cooked_mode:    jmp COOKED_MODE
-.endproc
+	; This would probably be EINVAL if we had a way to set errno
+	lda #$FF
+	tax
+	rts
 
+init:   jmp TTY_INIT
 
-.proc ECHO_ON
+echo_on:
         lda #1
         sta TTY + TTY_BLOCK::ECHO
         lda #0
         tax
         rts
-.endproc
 
-.proc ECHO_OFF
-        lda #'E'
-        jsr sendchar
+echo_off:
         stz TTY + TTY_BLOCK::ECHO
         lda #0
         tax
         rts
-.endproc
 
-.proc RAW_MODE
-        lda #'R'
-        jsr sendchar
+raw_mode:
         stz TTY + TTY_BLOCK::MODE       ; 0 for raw mode
         lda #0
         tax
         rts
-.endproc
 
-.proc COOKED_MODE
+cooked_mode:
         lda #1                          ; 1 for cooked mode
         sta TTY + TTY_BLOCK::MODE
         INITBUFFER ttybuffer            ; throw out previously buffered IO
@@ -173,6 +166,8 @@ cooked_mode:    jmp COOKED_MODE
         tax
         rts
 .endproc
+
+
 
 .proc TTY_INIT
         lda #1
@@ -227,12 +222,12 @@ cooked:
 
         sta TTY + TTY_BLOCK::TMPA
         stx TTY + TTY_BLOCK::TMPX
-;        cpx #$FF                        ; Test for EOF.
-;        bne not_eof
-;        stx TTY + TTY_BLOCK::EOF        ; mark EOF, and return. We don't
-;        bra return_w_carry              ; need to echo anything.
+        cpx #$FF                        ; Test for EOF.
+        bne not_eof
+        stx TTY + TTY_BLOCK::EOF        ; mark EOF, and return. We don't
+        bra return_w_carry              ; need to echo anything.
 
-;not_eof:
+not_eof:
         lda TTY + TTY_BLOCK::ECHO
         beq return_w_carry              ; echo disabled, skip to return
 
@@ -290,19 +285,16 @@ not_eof:
         ; Is there any available room in the buffer for a character?
         COUNTBUFFER ttybuffer
         cmp #126
-        bmi have_room_1
-        jmp return_char
+        bmi have_room_1         ; If there's no room in the buffer, we return
+        jmp return_char         ; an existing char and try again later.
 have_room_1:
-        jsr dev_getc
-        ;bcc return_char         ; no character to process
+        jsr dev_getc            ; Read a new character from the device!
         bcs skip1
-        jmp return_char
+        jmp return_char         ; no new character available
 skip1:
-        sta TTY + TTY_BLOCK::TMPA
+        sta TTY + TTY_BLOCK::TMPA       ; Save newly-read character
         stx TTY + TTY_BLOCK::TMPX
-        ;bcc return              ; No character read, no echo, no carry
-        cpx #$FF
-        ;beq return_char          ; read eof, no echo, no char to process
+        cpx #$FF                        ; Is new character an EOF?
         bne not_eof2
         stx TTY + TTY_BLOCK::EOF  ; mark that we've hit EOF
         jmp return_char
@@ -314,76 +306,111 @@ not_eof2:
         ; length of 63 bytes plus room for a cr. This works with the command-line
         ; buffer length limit in the kernel.
 
-        ; We'll start with just considering carriage return and backspace.
+        ; First let's check for a backspace
         cmp #8  ; backspace
-        bne check_for_cr
-        jsr HandleBackspace
-        bra echo
+        beq HandleBackspace
 
-check_for_cr:
         cmp #13 ; carriage return
-        bne check_for_esc
-        ; We need to handle a carriage return. This makes the current line available,
-        ; which is to say we put the character in the buffer and make the new write
-        ; pos cl_ttybuffer
-        WRITEBUFFER ttybuffer
-        lda wr_ttybuffer
-        sta cl_ttybuffer        ; advance the start of 'current' line to after the CR
-        lda #13;'\r'            ; Echo a newline after a carriage return.
-        sta TTY + TTY_BLOCK::ECHO_BUF0
-        lda #10;'\n'
-        sta TTY + TTY_BLOCK::ECHO_BUF1
-        lda #2
-        sta TTY + TTY_BLOCK::ECHO_COUNT
-        bra echo
+        beq HandleCR
 
-check_for_esc:
         cmp #27 ;esc
-        bne handle_regular_char
-        ; For now we're going to handle an escape char from the terminal by swapping
-        ; it to a '+'
-        ;lda #'+'
-        ;sta TTY + TTY_BLOCK::TMPA
-        jsr ReadEscapeSequence
-        bra echo
+        beq ReadEscapeSequence
 
-handle_regular_char:
+
+        ; We're reading a regular character that goes in the buffer.
+        ; Though we could consider filtering out other nonprintables, but
+        ; I'm not going to worry about that right now.
 
         ; check if we have room in the current line for a regular character
         ; If not, we'll reject it and output a beep
         
         COUNTCL ttybuffer
         cmp #63
-        bpl echo_bell
+        bpl echo_bell2                  ; No room! Toss the character & send bell.
         lda TTY + TTY_BLOCK::TMPA
-        sta TTY + TTY_BLOCK::ECHO_BUF0
         WRITEBUFFER ttybuffer
-        lda #1
-        sta TTY + TTY_BLOCK::ECHO_COUNT
-        bra echo
-echo_bell:
-        lda #7
-        sta TTY + TTY_BLOCK::ECHO_BUF0
-        lda #1
-        sta TTY + TTY_BLOCK::ECHO_COUNT
-
-echo:
-        ; Let's see what we need to echo
-        lda TTY + TTY_BLOCK::ECHO
-        beq return_char      ; echo off, no echo
-        ; echo is on, so write to out
+        lda TTY + TTY_BLOCK::ECHO       ; and see if we need to echo
+        beq return_char
         lda TTY + TTY_BLOCK::OUT_DEV
         jsr setdevice
-
-        ldy #0
-        bra start_echo_loop
-echo_loop:
-        lda TTY + TTY_BLOCK::ECHO_BUF0,y
+        lda TTY + TTY_BLOCK::TMPA
         jsr dev_putc
-        iny
-start_echo_loop:
-        cpy TTY + TTY_BLOCK::ECHO_COUNT
-        bne echo_loop
+        bra return_char
+
+
+
+; we need to handle a backspace character. If there are any characters in 
+; current line, we can roll back wrptr and store a 0.
+HandleBackspace:
+        COUNTCL ttybuffer
+        beq echo_bell2         ; No characters to delete, so we echo a bell.
+        lda wr_ttybuffer
+        dec
+        and #%01111111
+        sta wr_ttybuffer
+        lda TTY + TTY_BLOCK::ECHO
+        beq return_char
+        lda TTY + TTY_BLOCK::OUT_DEV
+        jsr setdevice
+        lda #8 ; backspace char
+        jsr dev_putc
+        lda #' '
+        jsr dev_putc
+        lda #8
+        jsr dev_putc
+        bra return_char
+        
+
+echo_bell2:
+        lda TTY + TTY_BLOCK::ECHO
+        beq return_char
+        lda TTY + TTY_BLOCK::OUT_DEV
+        jsr setdevice
+        lda #7
+        jsr dev_putc
+        bra return_char
+
+
+
+ReadEscapeSequence:
+        ; Entering this function, we'll have already read the esc character.
+        ; For now, I want to focus on recognizing cursor keys and ignoring
+        ; them so that they don't mess up line editing. We can think about
+        ; actually supporting left/right cursor some other time. So
+        ; we're looking for [ followed by A, B, C, or D. This could get 
+        ; really complex if we wanted to be complete, but I don't think
+        ; that's necessary.
+get1:
+        jsr dev_getc
+        bcc get1
+        cmp #'['
+        bne done
+get2:
+        jsr dev_getc
+        bcc get2
+done:
+        bra return_char
+
+
+HandleCR:
+        ; We need to handle a carriage return. This makes the current line available,
+        ; which is to say we put the character in the buffer and make the new write
+        ; pos cl_ttybuffer
+        WRITEBUFFER ttybuffer
+        lda wr_ttybuffer
+        sta cl_ttybuffer        ; advance the start of 'current' line to after the CR
+        ; If echo is set, we need to write both CR and newline
+        lda TTY + TTY_BLOCK::ECHO
+        beq return_char
+        lda TTY + TTY_BLOCK::OUT_DEV
+        jsr setdevice
+        lda #13;'\r'
+        jsr dev_putc
+        lda #10;'\n'
+        jsr dev_putc
+        ; And we'll just fall thru to return_char
+        ;bra return_char
+
 
 return_char:
         ; is there an available character to return?
@@ -404,67 +431,18 @@ return_char:
 return_eof:
         lda #$FF
         tax
-        ply
+        ply     ; remember we pushed Y way at the start of this
         sec
         rts
 return_char_from_buffer:
         READBUFFER ttybuffer
         ;jsr sendchar
         ldx #0
-        ply
+        ply     ; remember we pushed Y way at the start of this
         sec
-        rts
-
-.endproc
+        rts     ; And finally return from TTY_GETC_COOKED!
 
 
-.proc HandleBackspace
-        ; we need to handle a backspace character. If there are any characters in 
-        ; current line, we can roll back wrptr and store a 0.
-        COUNTCL ttybuffer
-        beq echo_bell         ; No characters to delete, so we echo a bell.
-        lda wr_ttybuffer
-        dec
-        and #%01111111
-        sta wr_ttybuffer
-        lda #8 ; backspace char
-        sta TTY + TTY_BLOCK::ECHO_BUF0
-        lda #' '
-        sta TTY + TTY_BLOCK::ECHO_BUF1
-        lda #8
-        sta TTY + TTY_BLOCK::ECHO_BUF2
-        lda #3
-        sta TTY + TTY_BLOCK::ECHO_COUNT
-        rts
-echo_bell:
-        lda #7
-        sta TTY + TTY_BLOCK::ECHO_BUF0
-        lda #1
-        sta TTY + TTY_BLOCK::ECHO_COUNT
-        rts
-.endproc
-
-
-
-.proc ReadEscapeSequence
-        ; Entering this function, we'll have already read the esc character.
-        ; For now, I want to focus on recognizing cursor keys and ignoring
-        ; them so that they don't mess up line editing. We can think about
-        ; actually supporting left/right cursor some other time. So
-        ; we're looking for [ followed by A, B, C, or D. This could get 
-        ; really complex if we wanted to be complete, but I don't think
-        ; that's necessary.
-get1:
-        jsr dev_getc
-        bcc get1
-        cmp #'['
-        bne done
-get2:
-        jsr dev_getc
-        bcc get2
-done:
-        stz TTY + TTY_BLOCK::ECHO_COUNT
-        rts
 
 .endproc
 
