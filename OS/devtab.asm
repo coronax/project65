@@ -32,9 +32,9 @@
 .include "os3.inc"
 .import SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC
 .import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
-.import TTY_IOCTL, TTY_GETC, TTY_PUTC,  TTY_OPEN, TTY_CLOSE
+.import TTY_IOCTL, TTY_GETC, TTY_OPEN, TTY_CLOSE
 .import _outputstring
-.export dev_ioctl, dev_getc, dev_putc, _SETDEVICE, set_filename, set_filemode, dev_open
+.export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
 .export dev_close, write, init_devices, openfile
 .export dev_seek, dev_tell, dev_get_status
 
@@ -83,7 +83,7 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 .align 16
 .byte 1, 0	; Empty Device 1
-.word TTY_IOCTL, TTY_GETC, TTY_PUTC, TTY_OPEN, TTY_CLOSE, NULLFN, NULLFN
+.word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NULLFN, NULLFN
 
 .align 16
 .byte 2, 0	; Empty Device 2
@@ -93,8 +93,10 @@ DEVTAB_TEMPLATE_END:
 .code
 
 ; A generic empty function. Any devtab entry that doesn't need a specific
-; handler can point to this function.
+; handler can point to this function. If called, returns -1.
 .proc		NULLFN
+			lda #$FF
+			tax
 			rts
 .endproc
 
@@ -108,13 +110,13 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 		bne loop
 
 		lda #0				; init serial port
-		jsr	_SETDEVICE
+		jsr	setdevice
 		jsr init_io
 		lda #1				; init SD card
-		jsr	_SETDEVICE
+		jsr	setdevice
 		jsr init_io
 		lda #4
-		jsr _SETDEVICE
+		jsr setdevice
 		jsr init_io
 		rts
 .endproc
@@ -122,7 +124,7 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 
 ; devnum in A
 ; Modifies AX
-.proc 		_SETDEVICE
+.proc 		setdevice
 			sta		CURRENT_DEVICE
 			clc
 			rol
@@ -262,12 +264,12 @@ doneoutputstring:
 			phx
 			phy
 			lda		#2
-			jsr		_SETDEVICE
+			jsr		setdevice
 			ldx		DEVICE_OFFSET
 			cmp		DEVTAB + DEVENTRY::FILEMODE,X
 			beq		do_open
 			lda 	#3
-			jsr		_SETDEVICE
+			jsr		setdevice
 			ldx		DEVICE_OFFSET
 			cmp		DEVTAB + DEVENTRY::FILEMODE,X
 			beq		do_open

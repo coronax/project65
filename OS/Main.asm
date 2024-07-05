@@ -30,7 +30,7 @@
 .export _commandline, RESET, crlf, print_printable
 ;.export program_address_high, program_address_low
 .import XModem, _outputstring, sendchar, readchar, print_hex
-.import _SETDEVICE, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
+.import setdevice, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
 .import dev_getc, write, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
 .import TokenizeCommandLine, test_tokenizer
 
@@ -302,7 +302,7 @@ done_false:
 
 ;		writedevice 1,buffer
 		lda #1
-		jsr _SETDEVICE
+		jsr setdevice
 
 		; we need to write each argument, separated by spaces
 		lda argc
@@ -364,7 +364,7 @@ filename_ok:
 		jsr set_filename
 		
 		lda #3
-		jsr _SETDEVICE
+		jsr setdevice
 		jsr	dev_open
 		
 		; check return code which is in A
@@ -373,14 +373,14 @@ filename_ok:
 		
 		; an error happened.  Print the command response & return to command line
 		lda #1
-		jsr _SETDEVICE
+		jsr setdevice
 		jsr PrintStream	; print rest of command response
 		jmp _commandline
 		
 open_success:
 		; read file content on device 2
 		lda #3
-		jsr		_SETDEVICE
+		jsr	setdevice
 		jsr PrintStream
 		writedevice 0, crlf
 
@@ -403,7 +403,7 @@ filename_ok:
 		jsr set_filename
 		
 		lda #2
-		jsr _SETDEVICE
+		jsr setdevice
 		jsr	dev_open
 		
 		; check return code which is in A
@@ -412,14 +412,14 @@ filename_ok:
 		
 		; an error happened.  Print the command response & return to command line
 		lda #1
-		jsr _SETDEVICE
+		jsr setdevice
 		jsr PrintStream	; print rest of command response
 		jmp _commandline
 		
 open_success:
 		; read file content on device 2
 		lda #2
-		jsr		_SETDEVICE
+		jsr		setdevice
 		
 get1:	jsr 	dev_getc
 		bcc		get1
@@ -512,7 +512,7 @@ filename_ok:
 		jsr set_filename
 		
 		lda #2				; We'll explicitly grab device #2, the 1st file slot.
-		jsr _SETDEVICE
+		jsr setdevice
 		jsr	dev_open
 		
 		; check return code which is in A
@@ -521,14 +521,14 @@ filename_ok:
 		
 		; an error happened.  Print the command response & return to command line
 		lda #1
-		jsr _SETDEVICE
+		jsr setdevice
 		jsr PrintStream	; print rest of command response
 		jmp _commandline
 		
 open_success:
 		; read file content on device 2
 		lda #2
-		jsr		_SETDEVICE
+		jsr		setdevice
 		
 		lda		program_address_low		; The first two bytes of the saved file are
 		sta		ptr1					; the address where it should be loaded into

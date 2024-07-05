@@ -28,7 +28,7 @@
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
 .import _commandline, _outputstring, dev_putc, dev_getc, print_hex 
-.import readchar, sendchar, _SETDEVICE, dev_open, dev_close
+.import readchar, sendchar, setdevice, dev_open, dev_close
 .import set_filename, set_filemode, openfile
 .import dev_ioctl, dev_seek, dev_tell, dev_get_status
 .import RESET
@@ -52,7 +52,7 @@ GetChar:        jmp readchar            ; FFE9 serial-specific routine
 PutHexit:       jmp print_hex           ; FFEC
 DEV_PUTC:       jmp dev_putc            ; FFEF writes character to current device
 DEV_GETC:       jmp dev_getc            ; FFF2 reads character from current device
-SETDEVICE:      jmp _SETDEVICE          ; FFF5 sets current device - see devtab.asm
+SETDEVICE:      jmp setdevice           ; FFF5 sets current device - see devtab.asm
 
 ; pad out to $FFFA
 .byte $00, $00 

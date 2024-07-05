@@ -60,20 +60,14 @@ O_EXCL          = $80
 ; able to quickly switch between the input and output devices and restore
 ; itself at the end.
 .struct TTY_BLOCK
-	MODE	.byte	; 0 for raw, 1 for cooked?
+	MODE	.byte	; 0 for raw, 1 for cooked
 	ECHO	.byte	; 0 for off, 1 for on.
 	IN_DEV	.byte	; device index for input source
-	IN_CHAN .byte	
-	IN_OFFSET .byte
-	OUT_DEV	.byte	; device index for output (which we need for echo etc)
-	OUT_CHAN .byte
-	OUT_OFFSET .byte
-	SELF_DEV .byte
-	SELF_CHAN .byte
-	SELF_OFFSET .byte
-	TMPA		.byte ; temporary storage of get retval
-	TMPX		.byte
-	EOF			.byte ; nonzero if the source has sent EOF
+	OUT_DEV	.byte	; device index for echo output
+	SELF_DEV .byte  ; our own device index
+	TMPA		.byte ; store the last character read from input
+	TMPX		.byte ; high byte of last character read from input
+	EOF			.byte ; nonzero if the source has sent EOF (cooked only)
 	ECHO_COUNT 	.byte ; # of bytes to echo
 	ECHO_BUF0   .byte ; Some characters will be echoed as multiple characters
 	ECHO_BUF1   .byte ; so we use ECHO_BUF* to keep track of them.
@@ -188,7 +182,7 @@ ptr2h	= $ec
 
 .macro writedevice fd, string
 		lda #fd
-		jsr _SETDEVICE
+		jsr setdevice
 		lda #<string
 		ldx #>string
 		jsr write

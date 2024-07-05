@@ -32,8 +32,8 @@
 ; with a simple raw mode with the option to echo characters back to the
 ; output, which is what I most need just at the moment.
 
-.import dev_getc, dev_putc, sendchar
-.export TTY_IOCTL, TTY_OPEN, TTY_CLOSE, TTY_GETC, TTY_PUTC
+.import dev_getc, dev_putc, setdevice, sendchar
+.export TTY_IOCTL, TTY_OPEN, TTY_CLOSE, TTY_GETC
 
 .include "os3.inc"
 
@@ -148,6 +148,8 @@ cooked_mode:    jmp COOKED_MODE
 .endproc
 
 .proc ECHO_OFF
+        lda #'E'
+        jsr sendchar
         stz TTY + TTY_BLOCK::ECHO
         lda #0
         tax
@@ -155,6 +157,8 @@ cooked_mode:    jmp COOKED_MODE
 .endproc
 
 .proc RAW_MODE
+        lda #'R'
+        jsr sendchar
         stz TTY + TTY_BLOCK::MODE       ; 0 for raw mode
         lda #0
         tax
@@ -176,16 +180,9 @@ cooked_mode:    jmp COOKED_MODE
         lda #1
         sta TTY + TTY_BLOCK::ECHO
         stz TTY + TTY_BLOCK::IN_DEV
-        stz TTY + TTY_BLOCK::IN_CHAN
-        stz TTY + TTY_BLOCK::IN_OFFSET
         stz TTY + TTY_BLOCK::OUT_DEV
-        stz TTY + TTY_BLOCK::OUT_CHAN
-        stz TTY + TTY_BLOCK::OUT_OFFSET
         lda #4
         sta TTY + TTY_BLOCK::SELF_DEV
-        stz TTY + TTY_BLOCK::SELF_CHAN
-        lda #64
-        sta TTY + TTY_BLOCK::SELF_OFFSET
         stz TTY + TTY_BLOCK::EOF
 
         INITBUFFER ttybuffer
@@ -213,7 +210,7 @@ cooked_mode:    jmp COOKED_MODE
 .endproc
 
 .proc TTY_GETC
-        lda TTY + TTY_BLOCK::ECHO
+        lda TTY + TTY_BLOCK::MODE
         bne cooked
         jmp TTY_GETC_RAW
 cooked:
@@ -224,50 +221,43 @@ cooked:
 
 .proc TTY_GETC_RAW
         lda TTY + TTY_BLOCK::IN_DEV
-        sta CURRENT_DEVICE
-        lda TTY + TTY_BLOCK::IN_CHAN
-        sta DEVICE_CHANNEL
-        lda TTY + TTY_BLOCK::IN_OFFSET
-        sta DEVICE_OFFSET
-        jsr dev_getc
+        jsr setdevice
+        jsr dev_getc                    ; Read a character from the input device.
+        bcc return_nothing              ; No character available, so we just return
+
         sta TTY + TTY_BLOCK::TMPA
         stx TTY + TTY_BLOCK::TMPX
-        bcc return              ; No character read, no echo, no carry
-        cpx #$FF
-        beq return_w_carry      ; read eof, no echo
+;        cpx #$FF                        ; Test for EOF.
+;        bne not_eof
+;        stx TTY + TTY_BLOCK::EOF        ; mark EOF, and return. We don't
+;        bra return_w_carry              ; need to echo anything.
+
+;not_eof:
         lda TTY + TTY_BLOCK::ECHO
-        ;beq return_w_carry      ; echo off, no echo
-        bne not_eof
-        stx TTY + TTY_BLOCK::EOF
-        bra return_w_carry
-not_eof:
+        beq return_w_carry              ; echo disabled, skip to return
+
         ; echo is on, so write to out
         lda TTY + TTY_BLOCK::OUT_DEV
-        sta CURRENT_DEVICE
-        lda TTY + TTY_BLOCK::OUT_CHAN
-        sta DEVICE_CHANNEL
-        lda TTY + TTY_BLOCK::OUT_OFFSET
-        sta DEVICE_OFFSET
+        jsr setdevice
         lda TTY + TTY_BLOCK::TMPA
-        ldx TTY + TTY_BLOCK::TMPX
+        jsr dev_putc                    ; Echo the character to output device.
+        cmp #13 ;'\r'                   ; When we output a carriage return, 
+        bne return_w_carry              ; we insert a newline afterwards.
+        lda #10 ;'\n'
         jsr dev_putc
-        cmp #13;'\r'            ; Echo a newline after a carriage return.
-        bne return_w_carry
-        lda #10;'\n'
-        jsr dev_putc
-return_w_carry:
-        sec                     ; We read a character, so we need to return with carry set
-return:
-        ; make tty the active device again
-        lda TTY + TTY_BLOCK::SELF_DEV
-        sta CURRENT_DEVICE
-        lda TTY + TTY_BLOCK::SELF_CHAN
-        sta DEVICE_CHANNEL
-        lda TTY + TTY_BLOCK::SELF_OFFSET
-        sta DEVICE_OFFSET
-        lda TTY + TTY_BLOCK::TMPA
-        ldx TTY + TTY_BLOCK::TMPX
 
+return_w_carry:
+        lda TTY + TTY_BLOCK::SELF_DEV
+        jsr setdevice                   ; Make TTY Device active again
+        lda TTY + TTY_BLOCK::TMPA       ; Load the return value to AX
+        ldx TTY + TTY_BLOCK::TMPX
+        sec                             ; Set carry when we return a character
+        rts
+
+return_nothing:
+        lda TTY + TTY_BLOCK::SELF_DEV
+        jsr setdevice
+        clc                             ; Clear carry to indicate no return
         rts
 .endproc
 
@@ -295,11 +285,7 @@ return:
 not_eof:
 
         lda TTY + TTY_BLOCK::IN_DEV
-        sta CURRENT_DEVICE
-        lda TTY + TTY_BLOCK::IN_CHAN
-        sta DEVICE_CHANNEL
-        lda TTY + TTY_BLOCK::IN_OFFSET
-        sta DEVICE_OFFSET
+        jsr setdevice
 
         ; Is there any available room in the buffer for a character?
         COUNTBUFFER ttybuffer
@@ -387,11 +373,7 @@ echo:
         beq return_char      ; echo off, no echo
         ; echo is on, so write to out
         lda TTY + TTY_BLOCK::OUT_DEV
-        sta CURRENT_DEVICE
-        lda TTY + TTY_BLOCK::OUT_CHAN
-        sta DEVICE_CHANNEL
-        lda TTY + TTY_BLOCK::OUT_OFFSET
-        sta DEVICE_OFFSET
+        jsr setdevice
 
         ldy #0
         bra start_echo_loop
@@ -407,22 +389,25 @@ return_char:
         ; is there an available character to return?
         ; make tty the active device again
         lda TTY + TTY_BLOCK::SELF_DEV
-        sta CURRENT_DEVICE
-        lda TTY + TTY_BLOCK::SELF_CHAN
-        sta DEVICE_CHANNEL
-        lda TTY + TTY_BLOCK::SELF_OFFSET
-        sta DEVICE_OFFSET
+        jsr setdevice
 
         ; Is there an available character to return?
         COUNTAVAIL ttybuffer
-        bne char_available
-        ; If the device is closed when we get here, should we return EOF?
-        ; How should we deal with a notional end of stream? Maybe that 
-        ; should be a separate flag.
+        bne return_char_from_buffer
+        ; If ttybuffer is empty and EOF is set, we should return
+        ; EOF. Otherwise, just return with carry clear
+        lda TTY + TTY_BLOCK::EOF
+        bne return_eof
         ply
         clc
         rts     ; no character available, just return with carry clear
-char_available:
+return_eof:
+        lda #$FF
+        tax
+        ply
+        sec
+        rts
+return_char_from_buffer:
         READBUFFER ttybuffer
         ;jsr sendchar
         ldx #0
@@ -437,7 +422,7 @@ char_available:
         ; we need to handle a backspace character. If there are any characters in 
         ; current line, we can roll back wrptr and store a 0.
         COUNTCL ttybuffer
-        beq echo_bell         ; No characters to delete, so we just ignore this.
+        beq echo_bell         ; No characters to delete, so we echo a bell.
         lda wr_ttybuffer
         dec
         and #%01111111
@@ -456,10 +441,10 @@ echo_bell:
         sta TTY + TTY_BLOCK::ECHO_BUF0
         lda #1
         sta TTY + TTY_BLOCK::ECHO_COUNT
-        ;sta TTY + TTY_BLOCK::TMPA
-        ;bra echo
         rts
 .endproc
+
+
 
 .proc ReadEscapeSequence
         ; Entering this function, we'll have already read the esc character.
@@ -484,7 +469,7 @@ done:
 .endproc
 
 
-
+.if 0
 .proc TTY_PUTC
         sta TTY + TTY_BLOCK::TMPA
         stx TTY + TTY_BLOCK::TMPX
@@ -508,3 +493,4 @@ done:
         ldx TTY + TTY_BLOCK::TMPX
         rts
 .endproc
+.endif
