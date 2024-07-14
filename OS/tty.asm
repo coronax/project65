@@ -224,7 +224,9 @@ cooked:
         stx TTY + TTY_BLOCK::TMPX
         cpx #$FF                        ; Test for EOF.
         bne not_eof
-        stx TTY + TTY_BLOCK::EOF        ; mark EOF, and return. We don't
+        stx TTY + TTY_BLOCK::EOF        ; mark EOF. This also counts as an end of line,
+        lda wr_ttybuffer                ; so we should update cl_ttybuffer like if we'd
+        sta cl_ttybuffer                ; read a CR.
         bra return_w_carry              ; need to echo anything.
 
 not_eof:
