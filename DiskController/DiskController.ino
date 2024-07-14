@@ -243,9 +243,9 @@ void WriteByte (char data)
 }
  
 
-char data[] = "HELLO, WORLD!\n";
-int i = 0;
-int len = 14;
+//char data[] = "HELLO, WORLD!\n";
+//int i = 0;
+//int len = 14;
 
 const int buflen = 64;
 char command_buffer[buflen];
@@ -511,7 +511,7 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
   
   char* filename = command_buffer + 3;
 
-  if (mode & P65_O_RDONLY) //!strncmp (command_buffer+2, "r:", 2))
+  if (mode & P65_O_RDONLY)
   { 
     if (!SD.exists(filename))
       return new CommandResponse ("0File Not Found", 15);
@@ -519,7 +519,7 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
     channel_io[channel] = new FileReader (filename);
     return new CommandResponse ("1",1);
   }
-  else if (mode & P65_O_WRONLY) //!strncmp (command_buffer+2, "w:", 2))
+  else if (mode & P65_O_WRONLY)
   {
     if ((mode & P65_O_TRUNC) && (SD.exists(filename)))
       SD.remove(filename);
