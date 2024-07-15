@@ -118,47 +118,6 @@ char ReadByte ()
 
   return result;
 
-#if 0
-  do {} while (signal_received == 0);
-  noInterrupts();
-  --signal_received;
-  interrupts();
-
-  pinMode (data0, INPUT);
-  pinMode (data1, INPUT);
-  pinMode (data2, INPUT);
-  pinMode (data3, INPUT);
-  pinMode (data4, INPUT);
-  pinMode (data5, INPUT);
-  pinMode (data6, INPUT);
-  pinMode (data7, INPUT);
-
-  // make sure pullups aren't on - is this needed?
-  /*
-  digitalWrite (data0, LOW);
-  digitalWrite (data1, LOW);
-  digitalWrite (data2, LOW);
-  digitalWrite (data3, LOW);
-  digitalWrite (data4, LOW);
-  digitalWrite (data5, LOW);
-  digitalWrite (data6, LOW);
-  digitalWrite (data7, LOW);
-  */
-
-  char result = (digitalRead(data0)==HIGH)?1:0;
-  result += (digitalRead(data1)==HIGH)?2:0;
-  result += (digitalRead(data2)==HIGH)?4:0;
-  result += (digitalRead(data3)==HIGH)?8:0;
-  result += (digitalRead(data4)==HIGH)?16:0;
-  result += (digitalRead(data5)==HIGH)?32:0;
-  result += (digitalRead(data6)==HIGH)?64:0;
-  result += (digitalRead(data7)==HIGH)?128:0;
-  
-  digitalWrite (ca1, LOW);
-  digitalWrite (ca1, HIGH);  // pulse indicates we've read
-
-  return result;
-#endif
 }
 
 
@@ -211,41 +170,9 @@ void WriteByte (char data)
 
   digitalWrite (ca1, LOW);
 
-
-#if 0
-
-  pinMode (data0, OUTPUT);
-  pinMode (data1, OUTPUT);
-  pinMode (data2, OUTPUT);
-  pinMode (data3, OUTPUT);
-  pinMode (data4, OUTPUT);
-  pinMode (data5, OUTPUT);
-  pinMode (data6, OUTPUT);
-  pinMode (data7, OUTPUT);
-  
-  digitalWrite (data0, data & 0x01);
-  digitalWrite (data1, data & 0x02);
-  digitalWrite (data2, data & 0x04);
-  digitalWrite (data3, data & 0x08);
-  digitalWrite (data4, data & 0x10);
-  digitalWrite (data5, data & 0x20);
-  digitalWrite (data6, data & 0x40);
-  digitalWrite (data7, data & 0x80);
-
-  digitalWrite (ca1, LOW);  // pulse indicates we've written
-  digitalWrite (ca1, HIGH);
-
-  do {} while (signal_received == 0);
-  noInterrupts();
-  --signal_received;
-  interrupts();
-#endif
 }
  
 
-//char data[] = "HELLO, WORLD!\n";
-//int i = 0;
-//int len = 14;
 
 const int buflen = 64;
 char command_buffer[buflen];
@@ -487,6 +414,14 @@ void setup()
 #define P65_O_APPEND 0x40
 #define P65_O_EXCL   0x80
 
+// P65 errno values. These are based off the cc65 errno values, but with
+// bit 7 set so they're all negative values (except EOK).
+#define P65_EOK    0
+#define P65_ENOENT 0x80 |  1
+#define P65_EINVAL 0x80 |  7
+#define P65_EEXIST 0x80 |  9
+#define P65_EIO    0x80 | 11
+
 /** Parse a file open command and create file reader/writer.
  *  Returns a CommandResponse object with status and an
  *  optional error message.
@@ -498,13 +433,17 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
 {
   if (strlen(command_buffer) < 4)
   {
-    return new CommandResponse ("0Bad Command Format", 19);
+    char error = P65_EINVAL;
+    return new CommandResponse (&error, 1);
+    //return new CommandResponse ("0Bad Command Format", 19);
   }
   
   int channel = command_buffer[1] - 48;  // cheap conversion
   if (channel < 1 || channel > 3)
   {
-    return new CommandResponse ("0Bad Channel Number", 19);
+    char error = P65_EINVAL;
+    return new CommandResponse (&error, 1);
+    //return new CommandResponse ("0Bad Channel Number", 19);
   }
 
   char mode = command_buffer[2];
@@ -514,10 +453,16 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
   if (mode & P65_O_RDONLY)
   { 
     if (!SD.exists(filename))
-      return new CommandResponse ("0File Not Found", 15);
+    {
+      char error = P65_ENOENT;
+      return new CommandResponse (&error, 1);
+      //return new CommandResponse ("0File Not Found", 15);
+    }
     delete (channel_io[channel]);
     channel_io[channel] = new FileReader (filename);
-    return new CommandResponse ("1",1);
+    char error = P65_EOK;
+    return new CommandResponse (&error, 1);
+    //return new CommandResponse ("1",1);
   }
   else if (mode & P65_O_WRONLY)
   {
@@ -525,7 +470,9 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
       SD.remove(filename);
     delete (channel_io[channel]);
     channel_io[channel] = new FileWriter (filename);
-    return new CommandResponse ("1", 1);
+    char error = P65_EOK;
+    return new CommandResponse (&error, 1);
+    //return new CommandResponse ("1", 1);
   }
 //  else if (!strncmp (command_buffer+2, "a:", 2))
 //  {
@@ -539,51 +486,56 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
 }
 
 
-int HandleDeleteFile (char* command_buffer)
+char HandleDeleteFile (char* command_buffer)
 {
   char* filename = command_buffer + 3;
-  if ((*filename == 0) || !SD.exists(filename))
-    return 0;
+  if (*filename == 0)
+    return P65_EINVAL;
+  if (!SD.exists(filename))
+    return P65_ENOENT;
   if (SD.remove(filename))
-    return 1;
+    return P65_EOK;
   else
-    return 0;
+    return P65_EIO;
 }
 
 
-int HandleDeleteDirectory (char* command_buffer)
-{
-  char* filename = command_buffer + 6;
-  if ((*filename == 0) || !SD.exists(filename))
-    return 0;
-  if (SD.rmdir(filename))
-    return 1;
-  else
-    return 0;
-}
-
-
-int HandleMkdir (char* command_buffer)
+char HandleDeleteDirectory (char* command_buffer)
 {
   char* filename = command_buffer + 6;
   if (*filename == 0)
-    return 0;
-  if (SD.mkdir(filename))
-    return 1;
+    return P65_EINVAL;
+  if (!SD.exists(filename))
+    return P65_ENOENT;
+  if (SD.rmdir(filename))
+    return P65_EOK;
   else
-    return 0;
+    return P65_EIO;
 }
 
 
-int HandleFileClose (char* command_buffer)
+char HandleMkdir (char* command_buffer)
 {
-  //return 1;
+  char* filename = command_buffer + 6;
+  if (*filename == 0)
+    return P65_EINVAL;
+  if (SD.exists(filename))
+    return P65_EEXIST;
+  if (SD.mkdir(filename))
+    return P65_EOK;
+  else
+    return P65_EIO;
+}
+
+
+char HandleFileClose (char* command_buffer)
+{
   int channel = command_buffer[1] - 48; // cheap conversion
   if (channel < 1 || channel > 3)
-    return 0;
+    return P65_EINVAL;
   delete (channel_io[channel]);
   channel_io[channel] = 0;
-  return 1;
+  return P65_EOK;
 }
 
 
@@ -642,27 +594,18 @@ void loop()
         }
         else if (!strncmp (command_buffer, "rm ",3))
         {
-          int response_code = HandleDeleteFile (command_buffer);
-          if (response_code)
-            channel_io[0] = new CommandResponse ("1",1);
-          else
-            channel_io[0] = new CommandResponse ("0",1);
+          char response_code = HandleDeleteFile (command_buffer);
+          channel_io[0] = new CommandResponse (&response_code,1);
         }
         else if (!strncmp (command_buffer, "rmdir ",6))
         {
-          int response_code = HandleDeleteDirectory (command_buffer);
-          if (response_code)
-            channel_io[0] = new CommandResponse ("1",1);
-          else
-            channel_io[0] = new CommandResponse ("0",1);
+          char response_code = HandleDeleteDirectory (command_buffer);
+          channel_io[0] = new CommandResponse (&response_code,1);
         }
-         else if (!strncmp (command_buffer, "mkdir ",6))
+        else if (!strncmp (command_buffer, "mkdir ",6))
         {
-          int response_code = HandleMkdir (command_buffer);
-          if (response_code)
-            channel_io[0] = new CommandResponse ("1",1);
-          else
-            channel_io[0] = new CommandResponse ("0",1);
+          char response_code = HandleMkdir (command_buffer);
+          channel_io[0] = new CommandResponse (&response_code,1);
         }
      }
       else

@@ -55,8 +55,8 @@
 			rts
 error:
 			; This would probably be EINVAL if we had a way to set errno
-			lda #$FF
-			tax
+			lda #P65_EINVAL
+			ldx #$FF
 			rts
 .endproc
 
@@ -245,17 +245,27 @@ done:		nop
 			jsr		SD_GETC			; read back the return code
 			; return code is in A.  1 is true, 0 is false
 			
-			cmp #'1'				; if success, set filemode in DEVTAB
-			bne return
-			tay						; save result code
+			cmp #P65_EOK			; if success, set filemode in DEVTAB
+			beq return_ok
+			ldx #$ff
+			bra return				; 
+return_ok:
+			;tay						; save result code
 			ldx DEVICE_OFFSET
 			lda DEVICE_FILEMODE
-			sta DEVTAB + DEVENTRY::FILEMODE, X
-			tya						; restore result code
+			sta DEVTAB + DEVENTRY::FILEMODE, X	; save device filemode to DEVTAB
+			;tya						; restore result code
+			lda #P65_EOK				; We're just returning EOK
+			ldx #0
 
-return:		plx						; pull dev channel off of stack
-			stx		DEVICE_CHANNEL	; restore device channel
+return:		ply						; pull dev channel off of stack
+			sty		DEVICE_CHANNEL	; restore device channel
 			rts
+;return_err:	ply						; pull dev channel off of stack
+;			sty		DEVICE_CHANNEL	; restore device channel
+;			ldx #$ff
+;			rts
+			
 .endproc
 
 

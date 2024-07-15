@@ -198,3 +198,24 @@ VIA_TIMER1_CH	= VIA_ADDRESS + $5		; timer 1 high-order counter
 VIA_TIMER1_LL	= VIA_ADDRESS + $6		; timer 1 low-order latch
 VIA_TIMER1_LH	= VIA_ADDRESS + $7		; timer 1 high-order latch
 
+; P65 errno values. These are based off the cc65 errno values, but with
+; bit 7 set so they're all negative values (except EOK).
+P65_EOK      =   0
+P65_ENOENT   =   $80 |  1
+P65_ENOMEM   =   $80 |  2
+P65_EACCES   =   $80 |  3
+P65_ENODEV   =   $80 |  4
+P65_EMFILE   =   $80 |  5
+P65_EBUSY    =   $80 |  6
+P65_EINVAL   =   $80 |  7
+P65_ENOSPC   =   $80 |  8
+P65_EEXIST   =   $80 |  9
+P65_EAGAIN   =   $80 | 10
+P65_EIO      =   $80 | 11
+P65_EINTR    =   $80 | 12
+P65_ENOSYS   =   $80 | 13
+P65_ESPIPE   =   $80 | 14
+P65_ERANGE   =   $80 | 15
+P65_EBADF    =   $80 | 16
+P65_ENOEXEC  =   $80 | 17
+P65_EUNKNOWN =   $80 | 18

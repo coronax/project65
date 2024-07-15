@@ -222,7 +222,7 @@ skip:
 		DispatchCommandLine b_command, process_b
 		DispatchCommandLine m_command, process_m
 		DispatchCommandLine load_command, ProcessLoadCommand
-		DispatchCommandLine ls_command, ProcessFileCommand
+		DispatchCommandLine ls_command, ProcessLsCommand
 		DispatchCommandLine mkdir_command, ProcessFileCommand
 		DispatchCommandLine more_command, ProcessMoreCommand
 		DispatchCommandLine rm_command, ProcessFileCommand
@@ -298,9 +298,57 @@ done_false:
 .endproc 
 
 
-.proc ProcessFileCommand
+; LS is still very oldschool and just expects a string of text from the device.
+; This needs to be replaced with a proper directory reading routine.
+.proc ProcessLsCommand
+		lda #1
+		jsr setdevice
 
-;		writedevice 1,buffer
+		; we need to write each argument, separated by spaces
+		lda argc
+		pha				; store counter on stack
+		lda #<argv0L
+		sta ptr2
+		lda #>argv0L
+		sta ptr2h		; initialize pointer to argument
+
+output_arg:
+		ldy #0			; ptr2 points to one of the argv pointers.
+		lda (ptr2),y	; Dereference and save pointer to actual string
+		sta ptr1		; in ptr1.
+		iny
+		lda (ptr2),y
+		sta ptr1h
+		dey				; and set Y back to 0.
+output_char:
+		lda (ptr1),y
+		beq next_arg
+		jsr dev_putc
+		iny
+		bra output_char
+next_arg:
+		pla				; get counter
+		dec
+		beq doneoutputargs
+		pha				; decrement and save counter
+		lda #' '
+		jsr dev_putc		; put a space between arguments
+		inc ptr2
+		inc ptr2		; point to next argument
+		bra output_arg
+doneoutputargs:
+		lda #0
+		jsr dev_putc		; and finally an end-of-string
+
+		; print output stream - this will still break ls, probably.
+		jsr PrintStream
+		printstring crlf
+		jmp _commandline
+.endproc
+
+
+; handler for commands mkdir, rmdir, rm
+.proc ProcessFileCommand
 		lda #1
 		jsr setdevice
 
@@ -342,10 +390,22 @@ doneoutputargs:
 		lda #0
 		jsr dev_putc		; and finally an end-of-string
 
-; read result.  Probably just "1" or "0". sigh.
-		jsr PrintStream
+; read result.  This will be a P65_* errno value
+		jsr dev_getc		; read return code
+		cmp #0
+		beq ret_ok
+		; print the error message
+		PHA
+		printstring fileoperror
+		PLA
+		jsr print_hex
 		printstring crlf
-		jmp _commandline
+ret_ok:	jmp _commandline
+;ret_ok:
+;		; success; print output stream, if any.
+;		jsr PrintStream
+;		printstring crlf
+;		jmp _commandline
 .endproc
 
 
@@ -368,13 +428,18 @@ filename_ok:
 		jsr	dev_open
 		
 		; check return code which is in A
-		cmp #'0'
-		bne open_success
+		cmp #0
+		beq open_success
 		
 		; an error happened.  Print the command response & return to command line
-		lda #1
-		jsr setdevice
-		jsr PrintStream	; print rest of command response
+		PHA
+		printstring fileoperror
+		PLA
+		jsr print_hex
+		printstring crlf
+		;lda #1
+		;jsr setdevice
+		;jsr PrintStream	; print rest of command response
 		jmp _commandline
 		
 open_success:
@@ -387,6 +452,8 @@ open_success:
 		jmp _commandline
 .endproc
 
+fileoperror:
+.asciiz "File Error: "
 
 
 .proc ProcessLoadCommand
@@ -407,13 +474,18 @@ filename_ok:
 		jsr	dev_open
 		
 		; check return code which is in A
-		cmp #'0'
-		bne open_success
+		cmp #P65_EOK
+		beq open_success
 		
 		; an error happened.  Print the command response & return to command line
-		lda #1
-		jsr setdevice
-		jsr PrintStream	; print rest of command response
+		PHA
+		printstring fileoperror
+		PLA
+		jsr print_hex
+		printstring crlf
+		;lda #1
+		;jsr setdevice
+		;jsr PrintStream	; print rest of command response
 		jmp _commandline
 		
 open_success:
@@ -516,13 +588,18 @@ filename_ok:
 		jsr	dev_open
 		
 		; check return code which is in A
-		cmp #'0'			; CJ BUG. text '0'? double check that!
-		bne open_success
+		cmp #P65_EOK			; CJ BUG. text '0'? double check that!
+		beq open_success
 		
 		; an error happened.  Print the command response & return to command line
-		lda #1
-		jsr setdevice
-		jsr PrintStream	; print rest of command response
+		PHA
+		printstring fileoperror
+		PLA
+		jsr print_hex
+		printstring crlf
+		;lda #1
+		;jsr setdevice
+		;jsr PrintStream	; print rest of command response
 		jmp _commandline
 		
 open_success:

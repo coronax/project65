@@ -195,7 +195,7 @@ cooked_mode:
         sta TTY + TTY_BLOCK::ECHO ; echo on
         stz TTY + TTY_BLOCK::EOF  ; clear eof
         INITBUFFER ttybuffer
-        lda #'1'                ; we need to fix this return value at some point
+        lda #P65_EOK              ; we need to fix this return value at some point
         ldx #0
         rts
 .endproc

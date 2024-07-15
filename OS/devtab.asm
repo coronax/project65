@@ -82,21 +82,21 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 .word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 
 .align 16
-.byte 1, 0	; Empty Device 1
+.byte 0, 0	; TTY Device; attaches on top of serial device
 .word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NULLFN, NULLFN
 
 .align 16
-.byte 2, 0	; Empty Device 2
+.byte 0, 0	; Empty Device 2
 .word NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NULLFN
 DEVTAB_TEMPLATE_END:
 
 .code
 
 ; A generic empty function. Any devtab entry that doesn't need a specific
-; handler can point to this function. If called, returns -1.
+; handler can point to this function. If called, returns P65_ENOSYS.
 .proc		NULLFN
-			lda #$FF
-			tax
+			lda #P65_ENOSYS
+			ldx #$FF
 			rts
 .endproc
 
@@ -273,7 +273,8 @@ doneoutputstring:
 			ldx		DEVICE_OFFSET
 			cmp		DEVTAB + DEVENTRY::FILEMODE,X
 			beq		do_open
-			lda		#$ff			; No available file descriptors
+			lda		#P65_EMFILE			; No available file descriptors
+			ldx		#$ff
 			rts
 do_open:
 			pla		
@@ -282,12 +283,13 @@ do_open:
 			pla	
 			jsr		set_filename
 			jsr		dev_open
-			beq		on_fail
+			bne		on_fail			; return whatever dev_open returns
 			lda		CURRENT_DEVICE
 			ldx		#0				; because cc65 __fopen wants us to return a 16-bit value
-			rts
-on_fail:	lda		#$ff
-			rts
+on_fail:	rts
+;on_fail:	lda		#$ff
+;
+;			rts
 .endproc
 
 

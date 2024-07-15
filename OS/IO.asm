@@ -261,9 +261,9 @@ done:
 		bne error
 		jmp SERIAL_INIT
 error:
-		; This would probably be EINVAL if we had a way to set errno
-		lda #$FF
-		tax
+		; Unidentified command value. return EINVAL.
+		lda #P65_EINVAL
+		ldx #$FF
 		rts
 .endproc
 
@@ -298,7 +298,7 @@ error:
 		; was the above setting ss high part of my trouble? doesn't make sense...
 
         jsr Max3100_Init
-		lda #0
+		lda #P65_EOK
 		tax
 		rts
 .endproc
