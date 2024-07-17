@@ -42,28 +42,57 @@
   // Todo: Management of current directory, cwd
   // support, etc.
 
+  // redo directory reading in a more useful way.
+
   // Todo: Refactor to get rid of dynamic allocation.
 
   // Todo: detect SD Card removal/insertion?
  
-  // Todo: Make error reporting easier to integrate
-  // with C.
-
-  // Todo: seek/tell?
+  // Todo: Because P:65 seek uses a signed int, we should probably fail to 
+  //       open any file larger than 2^31 - 1 bytes.
 
 #include <SD.h>
 #include <stdlib.h>
- 
-const int data0 = 1;
-const int data1 = 3;
-const int data2 = 4;
-const int data3 = 5;
-const int data4 = 6;
-const int data5 = 7;
-const int data6 = 8;
-const int data7 = 9; 
-const int ca1 = 0;
-const int ca2 = 2;    // needs to be 2 or 3 so we can recv interrupts.
+
+// P65 uses the values that cc65 defines in its fcntl.h. These differ
+// from Arduino SDK, Linux, etc.
+#define P65_O_RDONLY 0x01
+#define P65_O_WRONLY 0x02
+#define P65_O_RDWR   0x03
+#define P65_O_CREAT  0x10
+#define P65_O_TRUNC  0x20
+#define P65_O_APPEND 0x40
+#define P65_O_EXCL   0x80
+
+// P65 errno values. These are based off the cc65 errno values, but with
+// bit 7 set so they're all negative values (except EOK).
+#define P65_EOK    0
+#define P65_ENOENT 0x80 |  1
+#define P65_EINVAL 0x80 |  7
+#define P65_EEXIST 0x80 |  9
+#define P65_EIO    0x80 | 11
+#define P65_ENOSYS 0x80 | 13
+#define P65_EBADF  0x80 | 16
+
+// The SD library doesn't actually use the lseek "whence" values, but they
+// do get defined somewhere. These are copies of the values used by P:65,
+// which come from cc65.
+#define P65_SEEK_CUR        0
+#define P65_SEEK_END        1
+#define P65_SEEK_SET        2
+
+
+
+constexpr int data0 = 1;
+constexpr int data1 = 3;
+constexpr int data2 = 4;
+constexpr int data3 = 5;
+constexpr int data4 = 6;
+constexpr int data5 = 7;
+constexpr int data6 = 8;
+constexpr int data7 = 9; 
+constexpr int ca1 = 0;
+constexpr int ca2 = 2;    // needs to be 2 or 3 so we can recv interrupts.
 
 volatile int signal_received = 0;
 
@@ -184,8 +213,9 @@ class FileIO
 {
   public:
   virtual ~FileIO() {;}
-  virtual int getChar() {return 0;}
-  virtual int putChar(char) {return 0;}
+  virtual int getChar() {return P65_ENOSYS;}
+  virtual int putChar(char) {return P65_ENOSYS;}
+  virtual long int seek(long int offset, int whence) {return 0x80000000 | P65_ENOSYS;}
 };
 
 
@@ -216,7 +246,7 @@ class DirectoryReader: public FileIO
     entry.close();
   }
   
-  virtual int getChar()
+  int getChar() override
   {
     if (read_position == write_position)
     {
@@ -249,22 +279,15 @@ class DirectoryReader: public FileIO
 };
 
 
-
 class FileReader: public FileIO
 {
   public:
   File file;
-  int read_position;
-  int write_position;
-  int count;
   int file_open;
   FileReader (char* filename)
   {
     file = SD.open(filename);
     file_open = true;
-    read_position = 0;
-    write_position = 0;
-    count = 0;
   }
   
   virtual ~FileReader ()
@@ -273,21 +296,46 @@ class FileReader: public FileIO
       file.close();
   }
   
-  virtual int getChar()
+  int getChar() override
   {
     if (!file_open)
       return -1;
     int retval = file.read();
-    /*
-    if (retval == -1)
-    {
-      file.close();
-      file_open = false;
-    }
-    */
     return retval;
   }
   
+  long int seek(long int offset, int whence) override
+  {
+    //return offset; // debug
+    if (!file_open)
+      return 0x80000000 | P65_EBADF;
+    if (whence == P65_SEEK_CUR)
+    {
+      long int current = (long int)file.position();
+      if (file.seek((uint32_t)(current + offset)))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else if (whence == P65_SEEK_END)
+    {
+      long int end = (long int)file.size();
+      if (file.seek((uint32_t)(end + offset)))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else if (whence == P65_SEEK_SET)
+    {
+      if (file.seek((uint32_t)offset))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else
+      return 0x80000000 | P65_EINVAL; // bad whence value
+  }
+
 };
 
 
@@ -295,17 +343,11 @@ class FileWriter: public FileIO
 {
   public:
   File file;
-  int read_position;
-  int write_position;
-  int count;
   int file_open;
   FileWriter (char* filename)
   {
     file = SD.open(filename, FILE_WRITE);
     file_open = true;
-    read_position = 0;
-    write_position = 0;
-    count = 0;
   }
   
   virtual ~FileWriter ()
@@ -314,7 +356,7 @@ class FileWriter: public FileIO
       file.close();
   }
   
-  virtual int putChar(char ch)
+  int putChar(char ch) override
   {
     if (file_open)
     {
@@ -324,11 +366,43 @@ class FileWriter: public FileIO
       return 0;
   }
   
-  virtual int getChar()
+  int getChar() override
   {
     return -1;
   }
   
+  long int seek(long int offset, int whence) override
+  {
+    //return offset;
+    if (!file_open)
+      return 0x80000000 | P65_EBADF;
+    if (whence == P65_SEEK_CUR)
+    {
+      long int current = (long int)file.position();
+      if (file.seek((uint32_t)(current + offset)))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else if (whence == P65_SEEK_END)
+    {
+      uint32_t end = file.size();
+      if (file.seek(end + (uint32_t)offset))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else if (whence == P65_SEEK_SET)
+    {
+      if (file.seek((uint32_t)offset))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else
+      return 0x80000000 | P65_EINVAL; // bad whence value
+  }
+
 };
 
 
@@ -369,7 +443,7 @@ class CommandResponse: public FileIO
 
 
 FileIO* channel_io[3] = {NULL,NULL,NULL};
-
+char state = ' ';
 
 
 void setup()
@@ -398,29 +472,13 @@ void setup()
   pinMode (10, OUTPUT);
   if (!SD.begin(10))
     ErrorFlash();
-    
-  //channel_io[0] = channel_io[1] = 0;
-  
+      
   //Serial.begin (9600);
+
+  state = ' ';
 }
 
-// P65 uses the values that cc65 defines in its fcntl.h. These differ
-// from Arduino SDK, Linux, etc.
-#define P65_O_RDONLY 0x01
-#define P65_O_WRONLY 0x02
-#define P65_O_RDWR   0x03
-#define P65_O_CREAT  0x10
-#define P65_O_TRUNC  0x20
-#define P65_O_APPEND 0x40
-#define P65_O_EXCL   0x80
 
-// P65 errno values. These are based off the cc65 errno values, but with
-// bit 7 set so they're all negative values (except EOK).
-#define P65_EOK    0
-#define P65_ENOENT 0x80 |  1
-#define P65_EINVAL 0x80 |  7
-#define P65_EEXIST 0x80 |  9
-#define P65_EIO    0x80 | 11
 
 /** Parse a file open command and create file reader/writer.
  *  Returns a CommandResponse object with status and an
@@ -435,7 +493,6 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
   {
     char error = P65_EINVAL;
     return new CommandResponse (&error, 1);
-    //return new CommandResponse ("0Bad Command Format", 19);
   }
   
   int channel = command_buffer[1] - 48;  // cheap conversion
@@ -443,7 +500,6 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
   {
     char error = P65_EINVAL;
     return new CommandResponse (&error, 1);
-    //return new CommandResponse ("0Bad Channel Number", 19);
   }
 
   char mode = command_buffer[2];
@@ -456,13 +512,11 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
     {
       char error = P65_ENOENT;
       return new CommandResponse (&error, 1);
-      //return new CommandResponse ("0File Not Found", 15);
     }
     delete (channel_io[channel]);
     channel_io[channel] = new FileReader (filename);
     char error = P65_EOK;
     return new CommandResponse (&error, 1);
-    //return new CommandResponse ("1",1);
   }
   else if (mode & P65_O_WRONLY)
   {
@@ -472,7 +526,6 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
     channel_io[channel] = new FileWriter (filename);
     char error = P65_EOK;
     return new CommandResponse (&error, 1);
-    //return new CommandResponse ("1", 1);
   }
 //  else if (!strncmp (command_buffer+2, "a:", 2))
 //  {
@@ -562,54 +615,103 @@ void loop()
     }
     else
     {
-      WriteByte((char)2);
+      WriteByte((char)2);   // eof
     }
     break;
   case 0x18:  // 6502 wants to write a byte
     char c = ReadByte();
     if (channel == 0)
-    {  
-      command_buffer[command_buffer_index] = c;
-      if (c == 0 || command_buffer_index == buflen-1)
+    {
+      if (state == ' ')
       {
-        command_buffer[command_buffer_index] = 0;
-        //Serial.print ("command buffer is '");
-        //Serial.print (command_buffer);
-        //Serial.println ("'\n");
-        command_buffer_index = 0;
-        delete (channel_io[0]);
-        channel_io[0] = nullptr;
+        if (c == 'k')
+        {
+          state = 'k';
+        }
+        else
+        {
+          command_buffer[command_buffer_index++] = c;
+          state = 's'; // read a null-terimnated string
+        }
+      }
+      else if (state == 'k')
+      {
+        // the seek command is a channel number, long int, and char
+        command_buffer[command_buffer_index++] = c;
+        if (command_buffer_index == 6)
+        {
+          delete (channel_io[0]);
+          channel_io[0] = nullptr;
+          command_buffer_index = 0;
+          state = ' ';
 
-        if (!strncmp (command_buffer, "ls ", 3))
-        {
-          channel_io[0] = new DirectoryReader (command_buffer + 3);
+          // ready to execute
+          int seek_channel = command_buffer[0];
+          long int offset = *(long int*)(command_buffer + 1);
+          int whence = command_buffer[5];
+          if ((seek_channel > 0) && (seek_channel < 3) && channel_io[seek_channel])
+          {
+            long int response_code = channel_io[seek_channel]->seek(offset, whence);
+            channel_io[0] = new CommandResponse ((char*)&response_code,4);
+          }
+          else
+          {
+            // invalid or not open channel number
+            long int response_code = 0x80000000 | P65_EINVAL;
+            channel_io[0] = new CommandResponse ((char*)&response_code,4);
+          }
         }
-        else if (!strncmp (command_buffer, "o",1))
+      }
+      else if (state == 's')
+      {
+        // the command is a null-terminated string
+        if (command_buffer_index < buflen)
+          command_buffer[command_buffer_index++] = c;
+        if (c == 0)
         {
-          channel_io[0] = HandleFileOpen (command_buffer);
+          bool length_error = (command_buffer_index >= buflen);
+          //Serial.print ("command buffer is '");
+          //Serial.print (command_buffer);
+          //Serial.println ("'\n");
+          command_buffer_index = 0;
+          delete (channel_io[0]);
+          channel_io[0] = nullptr;
+          state = ' ';
+
+          if (length_error)
+          {
+            char response_code = P65_EINVAL;
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
+          else if (!strncmp (command_buffer, "ls ", 3))
+          {
+            channel_io[0] = new DirectoryReader (command_buffer + 3);
+          }
+          else if (!strncmp (command_buffer, "o",1))
+          {
+            channel_io[0] = HandleFileOpen (command_buffer);
+          }
+          else if (!strncmp (command_buffer, "c",1))
+          {
+            HandleFileClose (command_buffer); 
+          }
+          else if (!strncmp (command_buffer, "rm ",3))
+          {
+            char response_code = HandleDeleteFile (command_buffer);
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
+          else if (!strncmp (command_buffer, "rmdir ",6))
+          {
+            char response_code = HandleDeleteDirectory (command_buffer);
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
+          else if (!strncmp (command_buffer, "mkdir ",6))
+          {
+            char response_code = HandleMkdir (command_buffer);
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
         }
-        else if (!strncmp (command_buffer, "c",1))
-        {
-          HandleFileClose (command_buffer); 
-        }
-        else if (!strncmp (command_buffer, "rm ",3))
-        {
-          char response_code = HandleDeleteFile (command_buffer);
-          channel_io[0] = new CommandResponse (&response_code,1);
-        }
-        else if (!strncmp (command_buffer, "rmdir ",6))
-        {
-          char response_code = HandleDeleteDirectory (command_buffer);
-          channel_io[0] = new CommandResponse (&response_code,1);
-        }
-        else if (!strncmp (command_buffer, "mkdir ",6))
-        {
-          char response_code = HandleMkdir (command_buffer);
-          channel_io[0] = new CommandResponse (&response_code,1);
-        }
-     }
-      else
-        ++command_buffer_index;
+      }
     }
     else
     {
