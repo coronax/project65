@@ -199,6 +199,10 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 .endproc
 
 
+; Seeks on the current device
+; Arguments: A 4 byte offset in ptr1 and ptr2, a whence constant in A
+; Returns: An error code in A. if A is P65_EOK, a 4 byte offset in ptr1 and ptr2. 
+; Modifies AXY, ptr1, ptr2
 .proc dev_seek
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::SEEK,X)
