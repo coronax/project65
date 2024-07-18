@@ -36,6 +36,7 @@
 
 .include "OS3.inc"
 .export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.import print_hex, PutChar
 
 .pc02
 		
@@ -85,8 +86,15 @@ wait:
 			Wait_CA1 			; CA1 high means peripheral has read the data
 
 			stz		VIA_DDRA	; back to read mode
-			ldx		#%00001111
-			stx		VIA_PCR		; set CA2 high, CA1 still positive edge trigger
+			ldx		#%00001110
+			stx		VIA_PCR		; set CA2 high, CA1 negative
+
+			pha
+			Wait_CA1 			; CA1 trigger means peripheral has read the data
+			pla
+			;lda #'a'
+			;jsr PutChar
+
 
 			nop 
 			nop
@@ -111,9 +119,13 @@ wait:
 			lda			VIA_DATAA
 
 			;stz		VIA_DDRA	; back to read mode
-			ldx		#%00001111
-			stx		VIA_PCR		; set CA2 high, CA1 still positive edge trigger
+			ldx		#%00001110
+			stx		VIA_PCR		; set CA2 high, CA1 negative edge trigger
 
+			pha
+			Wait_CA1 			; CA1 trigger means peripheral has read the data
+			pla
+			
 			nop
 			nop 
 			nop
@@ -303,7 +315,61 @@ return:		ply						; pull dev channel off of stack
 
 
 .proc SD_SEEK
-		rts
+			pha		; Save whence value for later
+			lda 	DEVICE_CHANNEL
+			tay		; stash device channel in y
+			stz		DEVICE_CHANNEL	; send to command channel
+			
+			lda		#'k'			; seek command (l & s were already used)
+			jsr		SD_PUTC
+			jsr		print_hex
+
+			tya					; The channel we're seeking on.
+			jsr		SD_PUTC
+			jsr		print_hex
+
+			lda		ptr1
+			jsr		SD_PUTC
+			jsr		print_hex
+			lda		ptr1h
+			jsr		SD_PUTC
+			jsr		print_hex
+			lda		ptr2
+			jsr		SD_PUTC
+			jsr		print_hex
+			lda		ptr2h
+			jsr		SD_PUTC
+			jsr		print_hex
+
+			pla		; recover whence
+			jsr		SD_PUTC
+			jsr		print_hex
+
+			; read back a 4-byte value
+			jsr		SD_GETC
+			sta		ptr1
+			jsr		print_hex
+			jsr		SD_GETC
+			sta		ptr1h
+			jsr		print_hex
+			jsr		SD_GETC
+			sta		ptr2
+			jsr		print_hex
+			jsr		SD_GETC
+			sta		ptr2h
+			jsr		print_hex
+
+			sty		DEVICE_CHANNEL	; done reading, restore device channel
+
+			; check error condition
+			and		#$80		; A contains high byte of result. Negative val indicates error.
+			beq		ret_ok
+			; ret error
+			lda		ptr1		; error code in low byte of result.
+			rts
+ret_ok:
+			lda		#P65_EOK
+			rts
 .endproc
 
 .proc SD_TELL

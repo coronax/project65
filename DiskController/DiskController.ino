@@ -136,10 +136,12 @@ char ReadByte ()
 
   digitalWrite (ca1, HIGH);
 
+//  while (digitalRead(ca2) == LOW)
+//    ;
+
   // we'll do this to make sure we don't somehow miss the positive edge of ca2
   do {} while (signal_received == 0);
   noInterrupts();
-  //--signal_received;
   signal_received = 0;
   interrupts();
 
@@ -180,10 +182,12 @@ void WriteByte (char data)
   // data is ready to be read, de-assert wait
   digitalWrite (ca1, HIGH);
 
+//  while (digitalRead(ca2) == LOW)
+//    ;
+
   // we'll do this to make sure we don't somehow miss the positive edge of ca2
   do {} while (signal_received == 0);
   noInterrupts();
-  //--signal_received;
   signal_received = 0;
   interrupts();
 
@@ -467,7 +471,7 @@ void setup()
   
   delayMicroseconds(50);
   digitalWrite (ca1, LOW);
-  digitalWrite (ca2, LOW);
+  //digitalWrite (ca2, LOW);
   
   pinMode (10, OUTPUT);
   if (!SD.begin(10))
