@@ -32,6 +32,7 @@
 .import XModem, _outputstring, sendchar, readchar, print_hex
 .import setdevice, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
 .import dev_getc, write, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
+.import dev_read
 .import TokenizeCommandLine, test_tokenizer
 
 ; TODO
@@ -297,54 +298,163 @@ done_false:
 		rts
 .endproc 
 
+;==============================================================
+; Prints an error message for the error in A
+;==============================================================
+.proc perror
+	and #$7f	; clear high bit
+	pha
+	jsr print_hex
+	pla
+	asl
+	tay
+	lda errtable,y
+	sta ptr1
+	lda errtable+1,y
+	sta ptr1h
+	ldy #0
+loop:
+	lda (ptr1),y
+	beq done
+	jsr sendchar
+	iny
+	bra loop
+done:
+	printstring crlf
+	rts
+;.data
+m1:	.asciiz ": OK"
+m2: .asciiz ": File not found"
+m3: .asciiz ": Unknown"
+m4: .asciiz ": Syntax error"
+m5: .asciiz ": Not a directory"
+m6: .asciiz ": Is a directory"
+errtable:
+.byte <m1, >m1
+.byte <m2, >m2
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m3, >m3
+.byte <m4, >m4
+.byte <m5, >m5
+.byte <m6, >m6
+;.code
+
+.endproc
+
+
 
 ; LS is still very oldschool and just expects a string of text from the device.
 ; This needs to be replaced with a proper directory reading routine.
 .proc ProcessLsCommand
-		lda #1
+		lda #2
 		jsr setdevice
 
 		; we need to write each argument, separated by spaces
 		lda argc
-		pha				; store counter on stack
-		lda #<argv0L
-		sta ptr2
-		lda #>argv0L
-		sta ptr2h		; initialize pointer to argument
+		cmp #1
+		bne ckarg2
+		; if there was only one arg, we need to stick a "/" string somewhere.
+		; We can use the command buffer since we don't need it anymore.
+		lda #'/'
+		sta buffer
+		stz buffer+1
+		lda #<buffer
+		ldx #>buffer
+		jsr set_filename
+		bra set_mode
+ckarg2:
+		cmp #2
+		beq syntax_ok
+		lda #P65_ESYNTAX
+		bra error
+syntax_ok:
+		lda argv1L
+		ldx argv1H
+		jsr set_filename
+set_mode:
+		lda O_RDONLY
+		jsr set_filemode
 
-output_arg:
-		ldy #0			; ptr2 points to one of the argv pointers.
-		lda (ptr2),y	; Dereference and save pointer to actual string
-		sta ptr1		; in ptr1.
-		iny
-		lda (ptr2),y
+		jsr dev_open
+		; we should really check if the result is a directory...
+		cmp #0
+		bmi error
+		beq read_loop
+		cmp #2
+		beq read_loop
+
+		lda #P65_ENOTDIR
+		bra error
+
+		; OK, now we need some place to write a dirent to. Let's again use the
+		; buffer. We need to read & process individual dirents until we hit
+		; end of file.
+
+read_loop:
+		; I need a version of read...
+		;lda #'*'
+		;jsr sendchar
+
+		lda #<buffer	; calling dev_read may change the value stored in 
+		sta ptr1		; ptr1, so we always refresh it.
+		lda #>buffer
 		sta ptr1h
-		dey				; and set Y back to 0.
-output_char:
-		lda (ptr1),y
-		beq next_arg
-		jsr dev_putc
-		iny
-		bra output_char
-next_arg:
-		pla				; get counter
-		dec
-		beq doneoutputargs
-		pha				; decrement and save counter
-		lda #' '
-		jsr dev_putc		; put a space between arguments
-		inc ptr2
-		inc ptr2		; point to next argument
-		bra output_arg
-doneoutputargs:
-		lda #0
-		jsr dev_putc		; and finally an end-of-string
 
-		; print output stream - this will still break ls, probably.
-		jsr PrintStream
+		lda #18
+		ldx #0
+		jsr dev_read
+		cpx #0
+		bne done
+		cmp #18
+		bne done
+
+		; OK, filename is 1st element of dirent, should just be at buffer.
+		printstring buffer
+.if 0
+		ldy #0
+printloop:
+		lda buffer,y
+		beq doneprintname
+		jsr sendchar
+		iny
+		bra printloop
+doneprintname:
+.endif
 		printstring crlf
+		bra read_loop
+done:
+		printstring donestring
+		bra cleanup
+;		jsr dev_close
+;		jmp _commandline
+donestring:
+.asciiz "Done.\r\n"
+
+;syntax_error:
+;		lda #P65_ESYNTAX
+error:
+		jsr perror
+
+cleanup:
+		jsr dev_close
 		jmp _commandline
 .endproc
+
 
 
 ; handler for commands mkdir, rmdir, rm
@@ -416,9 +526,12 @@ ret_ok:	jmp _commandline
 		jsr set_filemode
 		lda argc
 		cmp #2
-		beq filename_ok
-		jmp syntax_error
-filename_ok:
+		beq syntax_ok
+		lda #P65_ESYNTAX
+		bra error
+;		beq filename_ok
+;		jmp syntax_error
+syntax_ok:
 		lda argv1L
 		ldx argv1H
 		jsr set_filename
@@ -427,27 +540,25 @@ filename_ok:
 		jsr setdevice
 		jsr	dev_open
 		
-		; check return code which is in A
+		; check return code which is in A. We want a stream (0) or regular file (1)
 		cmp #0
 		beq open_success
+		cmp #1
+		beq open_success
 		
+error:
 		; an error happened.  Print the command response & return to command line
-		PHA
-		printstring fileoperror
-		PLA
-		jsr print_hex
-		printstring crlf
-		;lda #1
-		;jsr setdevice
-		;jsr PrintStream	; print rest of command response
-		jmp _commandline
+		jsr perror
+		bra cleanup
 		
 open_success:
-		; read file content on device 2
-		lda #3
-		jsr	setdevice
 		jsr PrintStream
 		writedevice 0, crlf
+
+cleanup:
+		lda #3
+		jsr setdevice
+		jsr dev_close
 
 		jmp _commandline
 .endproc
@@ -463,7 +574,8 @@ fileoperror:
 		lda argc
 		cmp #2
 		beq filename_ok
-		jmp syntax_error
+		lda #P65_ESYNTAX
+		bra error
 filename_ok:
 		lda argv1L
 		ldx argv1H
@@ -473,21 +585,38 @@ filename_ok:
 		jsr setdevice
 		jsr	dev_open
 		
-		; check return code which is in A
-		cmp #P65_EOK
+		; check return code which is in A - we want a regular file (1)
+		cmp #0
+		bmi error
+		beq open_success
+		cmp #1
 		beq open_success
 		
+		lda #P65_EISDIR	; and fall thru to error handler
+
 		; an error happened.  Print the command response & return to command line
+	error:
+		; A successful load will launch straight into the program, so we need to
+		; do all the cleanup here.
+		jsr perror
+		;lda #2
+		;jsr setdevice
+		jsr dev_close
+		jmp _commandline
+		
+.if 0
 		PHA
 		printstring fileoperror
 		PLA
 		jsr print_hex
+		jsr dev_close
 		printstring crlf
 		;lda #1
 		;jsr setdevice
 		;jsr PrintStream	; print rest of command response
 		jmp _commandline
-		
+.endif
+
 open_success:
 		; read file content on device 2
 		lda #2
@@ -522,6 +651,8 @@ loop:	jsr		dev_getc
 		jsr		SERIAL_PUTC
 		bra		loop
 done:
+		jsr dev_close
+
 		; figure out end address just so i can print it correctly
 		clc
 		tya
@@ -577,7 +708,8 @@ loadmsg2:	.asciiz " to $"
 		lda argc
 		cmp #2
 		beq filename_ok
-		jmp syntax_error
+		lda #P65_ESYNTAX
+		bra error
 filename_ok:
 		lda argv1L
 		ldx argv1H
@@ -587,10 +719,17 @@ filename_ok:
 		jsr setdevice
 		jsr	dev_open
 		
-		; check return code which is in A
-		cmp #P65_EOK			; CJ BUG. text '0'? double check that!
+		; check return code which in A. We want a regular file (1).
+		cmp #0
+		;bmi error
 		beq open_success
-		
+		cmp #1
+		beq open_success
+
+error:
+		jsr perror
+		bra cleanup
+.if 0
 		; an error happened.  Print the command response & return to command line
 		PHA
 		printstring fileoperror
@@ -601,7 +740,8 @@ filename_ok:
 		;jsr setdevice
 		;jsr PrintStream	; print rest of command response
 		jmp _commandline
-		
+.endif
+
 open_success:
 		; read file content on device 2
 		lda #2
@@ -609,20 +749,20 @@ open_success:
 		
 		lda		program_address_low		; The first two bytes of the saved file are
 		sta		ptr1					; the address where it should be loaded into
-		jsr		dev_putc					; memory. Output those, and set ptr1 to the
+		jsr		dev_putc				; memory. Output those, and set ptr1 to the
 		lda		program_address_high 	; start location
 		sta		ptr1h
 		jsr		dev_putc
 
 loop:	lda		(ptr1)					; Loop & write data until we hit the
-		jsr 	dev_putc					; program_end pointer.
+		jsr 	dev_putc				; program_end pointer.
 		; compare to end of data
 		lda		ptr1
 		cmp		program_end_low
 		bne		notdone
 		lda		ptr1h
 		cmp		program_end_high
-		beq		done
+		beq		cleanup
 notdone:
 		; increment ptr1
 		inc		ptr1		
@@ -630,7 +770,7 @@ notdone:
 		inc		ptr1h
 		bra		loop
 
-done:
+cleanup:
 		jsr		dev_close					; close device 2
 		jmp 	_commandline
 .endproc
@@ -1101,9 +1241,9 @@ parse_hexit_3:
 
 
 not_imp_message:
-			.byte "Error: Not implemented", CR, LF, 0
+			.asciiz "Error: Not implemented\r\n"
 syntax_error_message:
-			.byte "Syntax error", CR, LF, 0
+			.asciiz "Syntax error\r\n"
 
 banner:
         .byte ESC, "[2J"         ; clear screen
@@ -1114,7 +1254,7 @@ banner:
 		.byte 199,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,182,CR,LF,0
 
 banner2:
-		.byte CR, LF, "Monitor ready", CR, LF, 0
+		.asciiz "\r\nMonitor ready\r\n"
 
 
 string1:

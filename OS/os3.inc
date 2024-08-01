@@ -145,6 +145,11 @@ ttybuffer = $0400 		; TTY input buffer. Temporary. 128 bytes so we can resuse so
 ; Page Zero usage
 ;=============================================================================
 
+tmp1 = $00db
+tmp2 = $00dc
+tmp3 = $00dd
+tmp4 = $00de
+
 wr_ttybuffer = $00df
 rd_ttybuffer = $00e0
 cl_ttybuffer = $00e1
@@ -219,3 +224,9 @@ P65_ERANGE   =   $80 | 15
 P65_EBADF    =   $80 | 16
 P65_ENOEXEC  =   $80 | 17
 P65_EUNKNOWN =   $80 | 18
+
+; OS-specific codes
+P65_ESYNTAX  =   $80 | 19
+P65_ENOTDIR  =   $80 | 20
+P65_EISDIR   =   $80 | 21
+
