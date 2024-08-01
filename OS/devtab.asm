@@ -37,6 +37,7 @@
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
 .export dev_close, write, init_devices, openfile
 .export dev_seek, dev_tell, dev_get_status
+.export dev_read
 
 
 ;CURRENT_DEVICE    = $0220
@@ -75,11 +76,11 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 .align 16
 .byte 1, 0	; SD Card Data Channel 1
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, NULLFN
 
 .align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, NULLFN
 
 .align 16
 .byte 0, 0	; TTY Device; attaches on top of serial device
@@ -184,7 +185,12 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Opens the current file device
 ; Uses DEVICE_FILENAME and DEVICE_FILEMODE
 ; Modifies AXY
-; On success, returns 1 in A. On Failure, 0
+; On success, returns 0.
+; Change to: On success, returns:
+;   0: stream
+;   1: regular file
+;   2: directory
+; Returns a P65 error code on failure.
 .proc dev_open
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::OPEN,X)
@@ -296,6 +302,50 @@ on_fail:	rts
 ;			rts
 .endproc
 
+
+
+; Read bytes from the current device. 
+; ptr1 points to a buffer. AX contains # of bytes to be read.
+; Returns number of bytes read in AX. 0 for end of file,
+; -1 for error.
+; Uses AXY, tmp1, tmp2, tmp3, ptr1
+.proc dev_read
+        cmp #0
+        bne nonzero
+        cpx #0
+        bne nonzero
+        rts             ; count is 0, so we can just return 0.
+nonzero:
+        sta tmp1        ; low byte of count
+        stx tmp2        ; high byte of count
+
+        stz tmp3        ; initialize read count
+        ldy #0
+ 
+loop:
+        jsr dev_getc
+        bcc loop
+        cpx #$FF
+        beq done        ; $FF in X means we received EOF
+        sta (ptr1),y    ; save character to buffer
+        iny
+        bne test_count
+        inc tmp3        ; if Y rolled over, we need to increment
+        inc ptr1+1      ; tmp3 and ptr1+1
+
+test_count:
+        ; if y/tmp3 == tmp1/tmp2, we are ready to exit.
+        cpy tmp1
+        bne loop
+        lda tmp3
+        cmp tmp2
+        bne loop
+
+done:
+        tya             ; load read count into AX
+        ldx tmp3
+        rts
+.endproc
 
 
 
