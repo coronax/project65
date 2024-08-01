@@ -67,12 +67,13 @@
 // P65 errno values. These are based off the cc65 errno values, but with
 // bit 7 set so they're all negative values (except EOK).
 #define P65_EOK    0
-#define P65_ENOENT 0x80 |  1
-#define P65_EINVAL 0x80 |  7
-#define P65_EEXIST 0x80 |  9
-#define P65_EIO    0x80 | 11
-#define P65_ENOSYS 0x80 | 13
-#define P65_EBADF  0x80 | 16
+#define P65_ENOENT   0x80 |  1
+#define P65_EINVAL   0x80 |  7
+#define P65_EEXIST   0x80 |  9
+#define P65_EIO      0x80 | 11
+#define P65_ENOSYS   0x80 | 13
+#define P65_EBADF    0x80 | 16
+#define P65_EUNKNOWN 0x80 | 18
 
 // The SD library doesn't actually use the lseek "whence" values, but they
 // do get defined somewhere. These are copies of the values used by P:65,
@@ -211,7 +212,7 @@ const int buflen = 64;
 char command_buffer[buflen];
 int command_buffer_index = 0;
 char command_output[buflen];
-int command_output_index = 0;
+//int command_output_index = 0;
 
 class FileIO
 {
@@ -223,6 +224,84 @@ class FileIO
 };
 
 
+struct dirent
+{
+  char d_name[13]; // 8.3 plus terminating zero
+  char d_type;     // 1 for regular file, 2 for directory
+  uint32_t d_size; // file size in bytes
+};
+
+class DirectoryReader2: public FileIO
+{
+  public:
+  File dir;
+  File entry;
+  int read_position;
+  int write_position;
+  struct dirent dirent;
+  char* buffer;
+
+  DirectoryReader2 (File _dir)
+  {
+    static_assert(sizeof(dirent) == 18);
+    dir = _dir;
+    // we need to rewind the directory here. otherwise, the 
+    // listing will start after the last file we opened.
+    // Which says something interesting about how the SD
+    // library is implemented.
+    dir.rewindDirectory();
+    read_position = 0;
+    write_position = 0;
+    buffer = (char*)&dirent;
+  }
+  
+  virtual ~DirectoryReader2 ()
+  {
+    dir.close();
+    entry.close();
+  }
+  
+  int getChar() override
+  {
+    if (read_position == write_position)
+    {
+      // try to get another entry
+      if (entry = dir.openNextFile())
+      {
+        strncpy (dirent.d_name, entry.name(), 12);
+        dirent.d_name[12] = 0;
+        dirent.d_type = entry.isDirectory()?2:1;
+        dirent.d_size = entry.size();
+        /*
+        if (entry.isDirectory())
+        {
+          write_position = snprintf (command_output, buflen, "%-12s       <dir>\r\n", entry.name());          
+        }
+        else
+        {
+          write_position = snprintf (command_output, buflen, "%-12s  %10lu\r\n", entry.name(), entry.size());
+        }
+        */
+        write_position = sizeof(struct dirent);
+        read_position = 0;
+        entry.close();
+      }
+      else
+      {
+        dir.close();
+        return -1;
+      }
+    }
+    char retval = buffer[read_position];
+    ++read_position;
+    //Serial.println (retval);
+    return retval;
+  }
+  
+};
+
+
+// old string-format directory reader
 class DirectoryReader: public FileIO
 {
   public:
@@ -283,18 +362,18 @@ class DirectoryReader: public FileIO
 };
 
 
-class FileReader: public FileIO
+class FileRW: public FileIO
 {
   public:
   File file;
   int file_open;
-  FileReader (char* filename)
+  FileRW (File f)
   {
-    file = SD.open(filename);
+    file = f;//SD.open(filename);
     file_open = true;
   }
   
-  virtual ~FileReader ()
+  virtual ~FileRW ()
   {
     if (file_open)
       file.close();
@@ -306,6 +385,16 @@ class FileReader: public FileIO
       return -1;
     int retval = file.read();
     return retval;
+  }
+  
+  int putChar(char ch) override
+  {
+    if (file_open)
+    {
+      return file.write (ch);
+    }
+    else
+      return -1;
   }
   
   long int seek(long int offset, int whence) override
@@ -342,72 +431,6 @@ class FileReader: public FileIO
 
 };
 
-
-class FileWriter: public FileIO
-{
-  public:
-  File file;
-  int file_open;
-  FileWriter (char* filename)
-  {
-    file = SD.open(filename, FILE_WRITE);
-    file_open = true;
-  }
-  
-  virtual ~FileWriter ()
-  {
-    if (file_open)
-      file.close();
-  }
-  
-  int putChar(char ch) override
-  {
-    if (file_open)
-    {
-      return file.write (ch);
-    }
-    else
-      return 0;
-  }
-  
-  int getChar() override
-  {
-    return -1;
-  }
-  
-  long int seek(long int offset, int whence) override
-  {
-    //return offset;
-    if (!file_open)
-      return 0x80000000 | P65_EBADF;
-    if (whence == P65_SEEK_CUR)
-    {
-      long int current = (long int)file.position();
-      if (file.seek((uint32_t)(current + offset)))
-        return (long int)file.position();
-      else
-        return 0x80000000 | P65_EIO;
-    }
-    else if (whence == P65_SEEK_END)
-    {
-      uint32_t end = file.size();
-      if (file.seek(end + (uint32_t)offset))
-        return (long int)file.position();
-      else
-        return 0x80000000 | P65_EIO;
-    }
-    else if (whence == P65_SEEK_SET)
-    {
-      if (file.seek((uint32_t)offset))
-        return (long int)file.position();
-      else
-        return 0x80000000 | P65_EIO;
-    }
-    else
-      return 0x80000000 | P65_EINVAL; // bad whence value
-  }
-
-};
 
 
 class CommandResponse: public FileIO
@@ -483,6 +506,27 @@ void setup()
 }
 
 
+// The values in SD library for mode flags don't match the values used by
+// cc65 and P:65. So we need to translate.
+char TranslateMode (char in)
+{
+  char mode = 0;
+  if (in & P65_O_RDONLY)
+    mode |= O_RDONLY;
+  if (in & P65_O_WRONLY)
+    mode |= O_WRONLY;
+  if (in & P65_O_CREAT)
+    mode |= O_CREAT;
+  if (in & P65_O_APPEND)
+    mode |= O_APPEND;
+  if (in & P65_O_TRUNC)
+    mode |= O_TRUNC;
+  if (in & P65_O_EXCL)
+    mode |= O_EXCL;
+
+  return mode;
+}
+
 
 /** Parse a file open command and create file reader/writer.
  *  Returns a CommandResponse object with status and an
@@ -499,7 +543,7 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
     return new CommandResponse (&error, 1);
   }
   
-  int channel = command_buffer[1] - 48;  // cheap conversion
+  int channel = command_buffer[1] - 48;  // convert ascii to int
   if (channel < 1 || channel > 3)
   {
     char error = P65_EINVAL;
@@ -507,39 +551,76 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
   }
 
   char mode = command_buffer[2];
+  char sd_mode = TranslateMode(mode);
   
   char* filename = command_buffer + 3;
 
-  if (mode & P65_O_RDONLY)
+  if (mode & P65_O_WRONLY)
+  {
+    if ((mode & P65_O_TRUNC) && (SD.exists(filename)))
+      SD.remove(filename);
+    delete (channel_io[channel]);
+    File f = SD.open (filename, FILE_WRITE);
+    if (f)
+    {
+      if (f.isDirectory())
+      {
+        // opening a directory for writing is not allowed! On Linux this
+        // would return with EISDIR, but that's not an option here.
+        f.close();
+        char error = P65_EUNKNOWN;
+        return new CommandResponse (&error, 1);
+      }
+      else
+      {
+        channel_io[channel] = new FileRW (f);
+        char error = P65_EOK;
+        return new CommandResponse (&error, 1);
+      }
+    }
+    else
+    {
+      char error = P65_EIO;
+      return new CommandResponse (&error, 1);
+    }
+  }
+  else if (mode & P65_O_RDONLY)
   { 
-    if (!SD.exists(filename))
+    // While "/" is a valid filename to pass to SD.open() in order to read the root
+    // directory, it is not accepted by SD.exists(). So we have to treat it specially
+    // here.
+    if (!SD.exists(filename) && strcmp(filename,"/"))
     {
       char error = P65_ENOENT;
       return new CommandResponse (&error, 1);
     }
     delete (channel_io[channel]);
-    channel_io[channel] = new FileReader (filename);
-    char error = P65_EOK;
-    return new CommandResponse (&error, 1);
+    File f = SD.open(filename);
+    if (f)
+    {
+      if (f.isDirectory())
+      {
+        channel_io[channel] = new DirectoryReader2 (f);
+        char error = P65_EOK;
+        return new CommandResponse (&error, 1);
+      }
+      else
+      {
+        channel_io[channel] = new FileRW (f);
+        char error = P65_EOK;
+        return new CommandResponse (&error, 1);
+      }
+    }
+    else
+    {
+      char error = P65_EIO;
+      return new CommandResponse (&error, 1);
+    }
   }
-  else if (mode & P65_O_WRONLY)
-  {
-    if ((mode & P65_O_TRUNC) && (SD.exists(filename)))
-      SD.remove(filename);
-    delete (channel_io[channel]);
-    channel_io[channel] = new FileWriter (filename);
-    char error = P65_EOK;
-    return new CommandResponse (&error, 1);
-  }
-//  else if (!strncmp (command_buffer+2, "a:", 2))
-//  {
-//    // sd library gives us the append behavior by default
-//    delete (channel_io[channel]);
-//    channel_io[channel] = new FileWriter (filename);
-//    return new CommandResponse ("1", 1);
-//  }
   
-  return 0;
+  // fallthrough error
+  char error = P65_EINVAL;
+  return new CommandResponse (&error, 1);
 }
 
 
