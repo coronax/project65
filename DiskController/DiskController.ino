@@ -574,7 +574,7 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
       else
       {
         channel_io[channel] = new FileRW (f);
-        char error = P65_EOK;
+        char error = 1; // regular file
         return new CommandResponse (&error, 1);
       }
     }
@@ -601,13 +601,13 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
       if (f.isDirectory())
       {
         channel_io[channel] = new DirectoryReader2 (f);
-        char error = P65_EOK;
+        char error = 2; // directory
         return new CommandResponse (&error, 1);
       }
       else
       {
         channel_io[channel] = new FileRW (f);
-        char error = P65_EOK;
+        char error = 1; // regular file
         return new CommandResponse (&error, 1);
       }
     }
@@ -721,6 +721,8 @@ void loop()
       }
       else if (state == 'k')
       {
+        // on reflection, maybe this was dumb. And just string encoding
+        // with, say, hex for the int, would be simpler in the long run.
         // the seek command is a channel number, long int, and char
         command_buffer[command_buffer_index++] = c;
         if (command_buffer_index == 6)
@@ -749,10 +751,10 @@ void loop()
       }
       else if (state == 's')
       {
-        // the command is a null-terminated string
+        // the command is a 0-terminated array of 0-terminated strings.
         if (command_buffer_index < buflen)
           command_buffer[command_buffer_index++] = c;
-        if (c == 0)
+        if ((c == 0) && (command_buffer_index > 1) && (command_buffer[command_buffer_index-2] == 0))
         {
           bool length_error = (command_buffer_index >= buflen);
           //Serial.print ("command buffer is '");
@@ -768,10 +770,10 @@ void loop()
             char response_code = P65_EINVAL;
             channel_io[0] = new CommandResponse (&response_code,1);
           }
-          else if (!strncmp (command_buffer, "ls ", 3))
-          {
-            channel_io[0] = new DirectoryReader (command_buffer + 3);
-          }
+          // else if (!strncmp (command_buffer, "ls ", 3))
+          // {
+          //   channel_io[0] = new DirectoryReader (command_buffer + 3);
+          // }
           else if (!strncmp (command_buffer, "o",1))
           {
             channel_io[0] = HandleFileOpen (command_buffer);

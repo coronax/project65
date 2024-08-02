@@ -323,23 +323,25 @@ done:
 	printstring crlf
 	rts
 ;.data
-m1:	.asciiz ": OK"
-m2: .asciiz ": File not found"
+m0:	.asciiz ": OK"
+m1: .asciiz ": File not found"
+m7: .asciiz ": Invalid parameter"
+m9: .asciiz ": File exists"
 m3: .asciiz ": Unknown"
 m4: .asciiz ": Syntax error"
 m5: .asciiz ": Not a directory"
 m6: .asciiz ": Is a directory"
 errtable:
+.byte <m0, >m0
 .byte <m1, >m1
-.byte <m2, >m2
 .byte <m3, >m3
 .byte <m3, >m3
 .byte <m3, >m3
 .byte <m3, >m3
 .byte <m3, >m3
+.byte <m7, >m7
 .byte <m3, >m3
-.byte <m3, >m3
-.byte <m3, >m3
+.byte <m9, >m9
 .byte <m3, >m3
 .byte <m3, >m3
 .byte <m3, >m3
@@ -387,7 +389,7 @@ syntax_ok:
 		ldx argv1H
 		jsr set_filename
 set_mode:
-		lda O_RDONLY
+		lda #O_RDONLY
 		jsr set_filemode
 
 		jsr dev_open
@@ -440,13 +442,9 @@ doneprintname:
 done:
 		printstring donestring
 		bra cleanup
-;		jsr dev_close
-;		jmp _commandline
 donestring:
 .asciiz "Done.\r\n"
 
-;syntax_error:
-;		lda #P65_ESYNTAX
 error:
 		jsr perror
 
@@ -499,18 +497,23 @@ next_arg:
 doneoutputargs:
 		lda #0
 		jsr dev_putc		; and finally an end-of-string
+		lda #0
+		jsr dev_putc		; and a marker for end of array-of-strings
 
 ; read result.  This will be a P65_* errno value
 		jsr dev_getc		; read return code
-		cmp #0
-		beq ret_ok
-		; print the error message
-		PHA
-		printstring fileoperror
-		PLA
-		jsr print_hex
-		printstring crlf
-ret_ok:	jmp _commandline
+		;cmp #0
+		;beq cleanup
+
+		; Let's just always call perror and get an "OK" if things go well :)
+		jsr perror; print the error message
+		;PHA
+		;printstring fileoperror
+		;PLA
+		;jsr print_hex
+		;printstring crlf
+cleanup:
+		jmp _commandline
 ;ret_ok:
 ;		; success; print output stream, if any.
 ;		jsr PrintStream
@@ -529,8 +532,6 @@ ret_ok:	jmp _commandline
 		beq syntax_ok
 		lda #P65_ESYNTAX
 		bra error
-;		beq filename_ok
-;		jmp syntax_error
 syntax_ok:
 		lda argv1L
 		ldx argv1H
@@ -542,10 +543,12 @@ syntax_ok:
 		
 		; check return code which is in A. We want a stream (0) or regular file (1)
 		cmp #0
+		bmi error
 		beq open_success
 		cmp #1
 		beq open_success
 		
+		lda #P65_EISDIR
 error:
 		; an error happened.  Print the command response & return to command line
 		jsr perror
@@ -563,8 +566,6 @@ cleanup:
 		jmp _commandline
 .endproc
 
-fileoperror:
-.asciiz "File Error: "
 
 
 .proc ProcessLoadCommand
@@ -604,19 +605,6 @@ filename_ok:
 		jsr dev_close
 		jmp _commandline
 		
-.if 0
-		PHA
-		printstring fileoperror
-		PLA
-		jsr print_hex
-		jsr dev_close
-		printstring crlf
-		;lda #1
-		;jsr setdevice
-		;jsr PrintStream	; print rest of command response
-		jmp _commandline
-.endif
-
 open_success:
 		; read file content on device 2
 		lda #2
@@ -698,6 +686,7 @@ loadmsg2:	.asciiz " to $"
 .endproc
 
 
+
 ; not sure how to make this work because of xmodem overwriting the 
 ; command buffer. hm.  let's try just saving the current program in
 ; memory?  but buffer pos is still a problem!
@@ -729,18 +718,6 @@ filename_ok:
 error:
 		jsr perror
 		bra cleanup
-.if 0
-		; an error happened.  Print the command response & return to command line
-		PHA
-		printstring fileoperror
-		PLA
-		jsr print_hex
-		printstring crlf
-		;lda #1
-		;jsr setdevice
-		;jsr PrintStream	; print rest of command response
-		jmp _commandline
-.endif
 
 open_success:
 		; read file content on device 2
@@ -774,6 +751,7 @@ cleanup:
 		jsr		dev_close					; close device 2
 		jmp 	_commandline
 .endproc
+
 
 
 .proc UptimeCommand
@@ -822,7 +800,9 @@ breakpoint_not_set:
 set_breakpoint_command:
 		cmp #2
 		beq syntax_ok1
-        jmp syntax_error
+        lda #P65_ESYNTAX
+		jsr perror
+		bra cleanup
 syntax_ok1:
 		lda argv1L
 		ldx argv1H
@@ -841,6 +821,7 @@ syntax_ok1:
         lda #00 ; BRK opcode
         sta (ptr1),y
         printstring breakpoint_set_msg
+cleanup:
         jmp _commandline
 
 breakpoint_removed_msg:
@@ -878,11 +859,11 @@ remove_needed:
 
 
 .proc process_m
-.if 1
 		lda argc
 		cmp #2
 		beq syntax_ok
-        jmp syntax_error
+		lda #P65_ESYNTAX
+		bra error
 syntax_ok:
         ; ok, now parse a hexadecimal address
         ; and put it somewhere. um...
@@ -895,7 +876,7 @@ syntax_ok:
 		; print 8 rows of 8 characters of output
 		; this is broken because print_hex uses x.
 		ldx #8
-@loop:  
+line_loop:  
 		phx
         lda #'m'
         jsr sendchar
@@ -910,56 +891,21 @@ syntax_ok:
         jsr sendchar
         jsr sendchar
 
-        ldy #0
-        lda (ptr2),y
+        ldy #0				; Print 8 bytes of memory in hex
+lp1:    lda (ptr2),y
         jsr print_hex
         lda #' '
         jsr sendchar
         iny
-        lda (ptr2),y
-        jsr print_hex
-        lda #' '
-        jsr sendchar
-        iny
-        lda (ptr2),y
-        jsr print_hex
-        lda #' '
-        jsr sendchar
-        iny
-        lda (ptr2),y
-        jsr print_hex
-        iny
+		cpy #8
+		bne lp1
 		
-        lda #' '
-        jsr sendchar
-
-        lda (ptr2),y
-        jsr print_hex
-        lda #' '
-        jsr sendchar
-        iny
-        lda (ptr2),y
-        jsr print_hex
-        lda #' '
-        jsr sendchar
-        iny
-        lda (ptr2),y
-        jsr print_hex
-        lda #' '
-        jsr sendchar
-        iny
-        lda (ptr2),y
-        jsr print_hex
-		
-		lda #' '
-		jsr sendchar
-		
-		ldy #0
-@loop2:	lda (ptr2),y
+		ldy #0				; Print the same 8 bytes as actual 
+lp2:	lda (ptr2),y		; characters.
 		jsr print_printable
 		iny
 		cpy #8
-		bne @loop2
+		bne lp2
 		
         ;printstring crlf
 		lda #CR
@@ -976,43 +922,39 @@ syntax_ok:
 		sta ptr2h
 		plx
 		dex
-		beq @done
-		jmp @loop
-.endif
-@done:	jmp _commandline	; return to command line parser
+		bne line_loop
+		lda #P65_EOK
+error:
+		jsr perror
+cleanup:
+		jmp _commandline	; return to command line parser
 .endproc
 
 		
-.if 1
+
+; Utility for printing memory
 ; print the character if it's alphanumeric or punctuation.
 ; print a '.' for any control character
-print_printable:
+.proc print_printable
 		cmp #$20
-		bcc @unprintable
+		bcc unprintable
 		cmp #$7F
-		bcc @printable
+		bcc printable
 		cmp #$A0
-		bcc @unprintable
-		jmp @printable	; a0 to FF - probably printable
-@unprintable:
+		bcc unprintable
+		jmp printable	; a0 to FF - probably printable
+unprintable:
 		lda #'.'
-@printable:
+printable:
 		jmp sendchar
-		;rts
-.endif
+.endproc
 
 
-syntax_error:
-        printstring crlf
-        printstring syntax_error_message
-        jmp _commandline
-
-		
 
 ;=============================================================================
 ; process_g
 ;=============================================================================
-; Example: g 0500
+; Example: g 0500 [arg2] [arg3]
 ; Handler for the g command, which executes code at a given location.
 ; The code emulates an indirect jsr, so if the called code returns with an
 ; rts, control will return to the command parser.
@@ -1022,10 +964,6 @@ syntax_error:
 		lda argc
 		cmp #1
 		bne read_address
-;		beq use_program_start
-;		cmp #2
-;		beq read_location
-;		jmp syntax_error
 use_default_address:
 		lda program_address_low		; No arguments; use default program
 		sta ptr2					; location.
@@ -1062,6 +1000,7 @@ program_return:
 		;jmp SOFT_RESET 
 		; So for now we'll try the less safe option of just returning into the
 		; command line routine.
+cleanup:
 		jmp _commandline
 
 return_msg:	.asciiz "Program returned "
@@ -1239,11 +1178,6 @@ parse_hexit_3:
 .endif
 
 
-
-not_imp_message:
-			.asciiz "Error: Not implemented\r\n"
-syntax_error_message:
-			.asciiz "Syntax error\r\n"
 
 banner:
         .byte ESC, "[2J"         ; clear screen

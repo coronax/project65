@@ -125,7 +125,7 @@ wait:
 			pha
 			Wait_CA1 			; CA1 trigger means peripheral has read the data
 			pla
-			
+
 			nop
 			nop 
 			nop
@@ -253,6 +253,8 @@ done:		nop
 			
 			lda		#0			; explicit end-of-string
 			jsr		SD_PUTC
+			lda     #0
+			jsr     SD_PUTC		; end of array-of-strings
 			
 			jsr		SD_GETC			; read back the return code
 			; return code is in A.  1 is true, 0 is false
@@ -304,6 +306,8 @@ return:		ply						; pull dev channel off of stack
 			
 			lda 	#0
 			jsr		SD_PUTC
+			lda 	#0
+			jsr		SD_PUTC ; end of array-of-strings
 			
 			sty		DEVICE_CHANNEL	; restore device channel
 			
