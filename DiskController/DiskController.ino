@@ -74,6 +74,9 @@
 #define P65_ENOSYS   0x80 | 13
 #define P65_EBADF    0x80 | 16
 #define P65_EUNKNOWN 0x80 | 18
+#define P65_ENOTDIR  0x80 | 20
+#define P65_EISDIR   0x80 | 21
+#define P65_EBADCMD  0x80 | 22
 
 // The SD library doesn't actually use the lseek "whence" values, but they
 // do get defined somewhere. These are copies of the values used by P:65,
@@ -300,7 +303,7 @@ class DirectoryReader2: public FileIO
   
 };
 
-
+#if 0
 // old string-format directory reader
 class DirectoryReader: public FileIO
 {
@@ -360,7 +363,7 @@ class DirectoryReader: public FileIO
   }
   
 };
-
+#endif
 
 class FileRW: public FileIO
 {
@@ -631,6 +634,15 @@ char HandleDeleteFile (char* command_buffer)
     return P65_EINVAL;
   if (!SD.exists(filename))
     return P65_ENOENT;
+  if (File f = SD.open(filename))
+  {
+    if (f.isDirectory())
+    {
+      f.close();
+      return P65_EISDIR;
+    }
+    f.close();
+  }
   if (SD.remove(filename))
     return P65_EOK;
   else
@@ -645,6 +657,15 @@ char HandleDeleteDirectory (char* command_buffer)
     return P65_EINVAL;
   if (!SD.exists(filename))
     return P65_ENOENT;
+  if (File f = SD.open(filename))
+  {
+    if (!f.isDirectory())
+    {
+      f.close();
+      return P65_ENOTDIR;
+    }
+    f.close();
+  }
   if (SD.rmdir(filename))
     return P65_EOK;
   else
@@ -664,6 +685,101 @@ char HandleMkdir (char* command_buffer)
   else
     return P65_EIO;
 }
+
+
+
+char HandleCpFile (char* command_buffer)
+{
+  // The documentation is a little vague, but I assume RAII applies to File.
+  constexpr int buflen = 64;
+  char buffer[buflen];
+  char* src_filename = command_buffer + 3;
+  char* dst_filename = src_filename + strlen(src_filename) + 1;
+  File src, dst;
+
+  if ((src_filename[0] == '\0') || (dst_filename[0] == '\0'))
+    return P65_EINVAL;
+  if (!SD.exists(src_filename))
+    return P65_ENOENT;
+
+  //return P65_EBADCMD;
+
+#if 1
+  if (src = SD.open(src_filename, FILE_READ))
+  {
+    if (src.isDirectory())
+    {
+      src.close();
+      return P65_EISDIR;
+    }
+
+  }
+  else
+  {
+    src.close();
+    return P65_EIO;
+  }
+
+  // If dst_filename is a folder, we need to insert into that folder. sigh.
+  if (SD.exists(dst_filename) && (dst = SD.open(dst_filename, FILE_READ)))
+  {
+    if (dst.isDirectory())
+    {
+      // make up a new destination name and stick it in buffer.
+      dst.close();
+      if (strlen(src_filename) + strlen(dst_filename) + 2 > buflen)
+      {
+        return P65_EINVAL; // name too long...
+      }
+      sprintf(buffer, "%s/%s",dst_filename, src_filename);
+      dst_filename = buffer;
+    }
+    else
+    {
+      dst.close();
+      //SD.remove(dst_filename);
+    }
+  }
+
+  // so despite the fact that FILE_WRITE is apparently defined with O_APPEND,
+  // the actual effect is as if using O_TRUNC. Which begs the question of
+  // whether we can make append work at all... or if seek would avail us?
+  // or is that us doing that up above?
+  dst = SD.open(dst_filename, /*FILE_WRITE*/O_WRITE | O_CREAT | O_TRUNC);
+  if (!dst)
+  {
+    src.close();
+    return 0x83;//P65_EIO;
+  }
+
+  // OK, we should have both src and dst open. Start copying?
+  int num_read = 0, num_written = 0;
+  int total_written = 0;
+  int count = src.size();
+  for (;;)
+  {
+    num_read = src.read(buffer,buflen);
+    if (num_read == 0)
+      break;
+    num_written = dst.write(buffer,num_read);
+    total_written += num_written;
+    if (num_written != num_read)
+      break;
+  }
+
+  src.close();
+  dst.close();
+
+  if (total_written != count)
+  {
+    //SD.remove(dst_filename);
+    return P65_EIO;
+  }
+  else
+    return P65_EOK;
+#endif
+}
+
 
 
 char HandleFileClose (char* command_buffer)
@@ -774,6 +890,26 @@ void loop()
           // {
           //   channel_io[0] = new DirectoryReader (command_buffer + 3);
           // }
+          else if (!strcmp (command_buffer, "rm"))
+          {
+            char response_code = HandleDeleteFile (command_buffer);
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
+          else if (!strcmp (command_buffer, "rmdir"))
+          {
+            char response_code = HandleDeleteDirectory (command_buffer);
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
+          else if (!strcmp (command_buffer, "mkdir"))
+          {
+            char response_code = HandleMkdir (command_buffer);
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
+          else if (!strcmp (command_buffer, "cp"))
+          {
+            char response_code = HandleCpFile (command_buffer);
+            channel_io[0] = new CommandResponse (&response_code,1);
+          }
           else if (!strncmp (command_buffer, "o",1))
           {
             channel_io[0] = HandleFileOpen (command_buffer);
@@ -782,19 +918,9 @@ void loop()
           {
             HandleFileClose (command_buffer); 
           }
-          else if (!strncmp (command_buffer, "rm ",3))
+          else
           {
-            char response_code = HandleDeleteFile (command_buffer);
-            channel_io[0] = new CommandResponse (&response_code,1);
-          }
-          else if (!strncmp (command_buffer, "rmdir ",6))
-          {
-            char response_code = HandleDeleteDirectory (command_buffer);
-            channel_io[0] = new CommandResponse (&response_code,1);
-          }
-          else if (!strncmp (command_buffer, "mkdir ",6))
-          {
-            char response_code = HandleMkdir (command_buffer);
+            char response_code = P65_EBADCMD;
             channel_io[0] = new CommandResponse (&response_code,1);
           }
         }
