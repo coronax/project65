@@ -145,6 +145,8 @@ ttybuffer = $0400 		; TTY input buffer. Temporary. 128 bytes so we can resuse so
 ; Page Zero usage
 ;=============================================================================
 
+; 000A to 007a is allocated for cc65 (or other applications)
+
 tmp1 = $00db
 tmp2 = $00dc
 tmp3 = $00dd
@@ -185,7 +187,7 @@ ptr2h	= $ec
 		jsr setdevice
 		lda #<string
 		ldx #>string
-		jsr write
+		jsr dev_writestr
 .endmacro
 
 VIA_ADDRESS 	= $C000
@@ -229,4 +231,5 @@ P65_EUNKNOWN =   $80 | 18
 P65_ESYNTAX  =   $80 | 19
 P65_ENOTDIR  =   $80 | 20
 P65_EISDIR   =   $80 | 21
+P65_EBADCMD  =   $80 | 22
 

@@ -259,17 +259,17 @@ done:		nop
 			jsr		SD_GETC			; read back the return code
 			; return code is in A.  1 is true, 0 is false
 			
-			cmp #P65_EOK			; if success, set filemode in DEVTAB
-			beq return_ok
+			cmp #0			; A >= 0 is success
+			bpl return_ok
 			ldx #$ff
 			bra return				; 
 return_ok:
-			;tay						; save result code
+			tay						; save result code
 			ldx DEVICE_OFFSET
 			lda DEVICE_FILEMODE
 			sta DEVTAB + DEVENTRY::FILEMODE, X	; save device filemode to DEVTAB
-			;tya						; restore result code
-			lda #P65_EOK				; We're just returning EOK
+			tya						; restore result code
+			;lda #P65_EOK				; We're just returning EOK
 			ldx #0
 
 return:		ply						; pull dev channel off of stack

@@ -29,11 +29,13 @@
 
 .export _commandline, RESET, crlf, print_printable
 ;.export program_address_high, program_address_low
+.export mkdir_command, rmdir_command, rm_command, cp_command ; strings shared with filesystem
 .import XModem, _outputstring, sendchar, readchar, print_hex
 .import setdevice, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
-.import dev_getc, write, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
+.import dev_getc, dev_writestr, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
 .import dev_read
 .import TokenizeCommandLine, test_tokenizer
+.import mkdir, rmdir, rm, cp
 
 ; TODO
 ;
@@ -224,10 +226,11 @@ skip:
 		DispatchCommandLine m_command, process_m
 		DispatchCommandLine load_command, ProcessLoadCommand
 		DispatchCommandLine ls_command, ProcessLsCommand
-		DispatchCommandLine mkdir_command, ProcessFileCommand
+		DispatchCommandLine mkdir_command, ProcessMkdirCommand
 		DispatchCommandLine more_command, ProcessMoreCommand
-		DispatchCommandLine rm_command, ProcessFileCommand
-		DispatchCommandLine rmdir_command, ProcessFileCommand
+		DispatchCommandLine rm_command, ProcessRmCommand
+		DispatchCommandLine cp_command, ProcessCpCommand
+		DispatchCommandLine rmdir_command, ProcessRmdirCommand
 		DispatchCommandLine save_command, ProcessSaveCommand
 		DispatchCommandLine uptime_command, UptimeCommand
 
@@ -238,24 +241,28 @@ skip:
 
         jmp _commandline	; and loop back to the start of the processor
 
+
+.endproc
+
+.rodata
+; command names. A few of these are shared with filesystem.
 b_command:		.asciiz "b"
 g_command:		.asciiz "g"		
 ls_command:		.asciiz "ls"
 mkdir_command:	.asciiz "mkdir"
 rmdir_command:	.asciiz "rmdir"
 rm_command:		.asciiz "rm"
+cp_command:     .asciiz "cp"
 m_command:		.asciiz "m"
 more_command:	.asciiz "more"
 load_command:	.asciiz "load"
 save_command:	.asciiz "save"
 uptime_command:	.asciiz "uptime"
 x_command:		.asciiz "x"
-
-.endproc
-
+.code
 
 
-
+.if 0
 ; Returns 1 in A if the string in AX is a prefix of the command buffer
 .proc IsPrefix
 		sta ptr1
@@ -274,6 +281,7 @@ done_false:
 		lda #0
 		rts
 .endproc 
+.endif
 
 
 ; Returns 1 in A if the string in AX equals the string in ptr1
@@ -305,6 +313,10 @@ done_false:
 	and #$7f	; clear high bit
 	pha
 	jsr print_hex
+	lda #':'
+	jsr sendchar
+	lda #' '
+	jsr sendchar
 	pla
 	asl
 	tay
@@ -322,15 +334,17 @@ loop:
 done:
 	printstring crlf
 	rts
-;.data
-m0:	.asciiz ": OK"
-m1: .asciiz ": File not found"
-m7: .asciiz ": Invalid parameter"
-m9: .asciiz ": File exists"
-m3: .asciiz ": Unknown"
-m4: .asciiz ": Syntax error"
-m5: .asciiz ": Not a directory"
-m6: .asciiz ": Is a directory"
+.rodata
+m0:	 .asciiz "OK"
+m1:  .asciiz "File not found"
+m7:  .asciiz "Invalid parameter"
+m9:  .asciiz "File exists"
+m11: .asciiz "IO error"
+m3:  .asciiz "Unknown"
+m4:  .asciiz "Syntax error"
+m5:  .asciiz "Not a directory"
+m6:  .asciiz "Is a directory"
+m22: .asciiz "Bad DOS cmd"
 errtable:
 .byte <m0, >m0
 .byte <m1, >m1
@@ -343,7 +357,7 @@ errtable:
 .byte <m3, >m3
 .byte <m9, >m9
 .byte <m3, >m3
-.byte <m3, >m3
+.byte <m11, >m11
 .byte <m3, >m3
 .byte <m3, >m3
 .byte <m3, >m3
@@ -354,7 +368,8 @@ errtable:
 .byte <m4, >m4
 .byte <m5, >m5
 .byte <m6, >m6
-;.code
+.byte <m22, >m22
+.code
 
 .endproc
 
@@ -455,6 +470,106 @@ cleanup:
 
 
 
+; handler for mkdir shell command
+.proc ProcessMkdirCommand
+		; there should be exactly 2 arguments
+		lda argc
+		cmp #2
+		beq syntax_ok
+		lda #P65_ESYNTAX
+		bra error
+syntax_ok:
+		lda argv1L
+		ldx argv1H
+		jsr mkdir		; Call mkdir!
+		cmp #0			; Check return code
+		beq cleanup
+
+error:
+		jsr perror
+
+cleanup:
+		jmp _commandline
+.endproc
+
+
+
+; handler for rmdir shell command
+.proc ProcessRmdirCommand
+		; there should be exactly 2 arguments
+		lda argc
+		cmp #2
+		beq syntax_ok
+		lda #P65_ESYNTAX
+		bra error
+syntax_ok:
+		lda argv1L
+		ldx argv1H
+		jsr rmdir		; Call mkdir!
+		cmp #0			; Check return code
+		beq cleanup
+
+error:
+		jsr perror
+
+cleanup:
+		jmp _commandline
+.endproc
+
+
+
+; handler for rm shell command. We want to allow multiple arguments. Maybe later?
+.proc ProcessRmCommand
+		; there should be exactly 2 arguments
+		lda argc
+		cmp #2
+		beq syntax_ok
+		lda #P65_ESYNTAX
+		bra error
+syntax_ok:
+		lda argv1L
+		ldx argv1H
+		jsr rm			; Call rm!
+		cmp #0			; Check return code
+		beq cleanup
+
+error:
+		jsr perror
+
+cleanup:
+		jmp _commandline
+.endproc
+
+
+
+; handler for rm shell command. We want to allow multiple arguments. Maybe later?
+.proc ProcessCpCommand
+		; there should be exactly 2 arguments
+		lda argc
+		cmp #3
+		beq syntax_ok
+		lda #P65_ESYNTAX
+		bra error
+syntax_ok:
+		lda argv2H		; let's try to stick arg2 in ptr2
+		sta ptr2h
+		lda argv2L
+		sta ptr2
+		lda argv1L		; arg1 in AX
+		ldx argv1H
+		jsr cp			; Call cp function!
+		cmp #0			; Check return code
+		beq cleanup
+
+error:
+		jsr perror
+
+cleanup:
+		jmp _commandline
+.endproc
+
+
+.if 0
 ; handler for commands mkdir, rmdir, rm
 .proc ProcessFileCommand
 		lda #1
@@ -520,7 +635,7 @@ cleanup:
 ;		printstring crlf
 ;		jmp _commandline
 .endproc
-
+.endif
 
 
 .proc ProcessMoreCommand

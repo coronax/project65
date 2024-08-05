@@ -35,9 +35,9 @@
 .import TTY_IOCTL, TTY_GETC, TTY_OPEN, TTY_CLOSE
 .import _outputstring
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
-.export dev_close, write, init_devices, openfile
+.export dev_close, init_devices, openfile
 .export dev_seek, dev_tell, dev_get_status
-.export dev_read
+.export dev_read, dev_writestr
 
 
 ;CURRENT_DEVICE    = $0220
@@ -185,12 +185,11 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Opens the current file device
 ; Uses DEVICE_FILENAME and DEVICE_FILEMODE
 ; Modifies AXY
-; On success, returns 0.
-; Change to: On success, returns:
+; Change to: On success, returns in AX:
 ;   0: stream
 ;   1: regular file
 ;   2: directory
-; Returns a P65 error code on failure.
+; Returns a P65 error code on failure (-1 in X, code in A).
 .proc dev_open
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::OPEN,X)
@@ -246,22 +245,6 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 .endproc
 
 
-; String pointer in ax
-.proc write
-			sta 	ptr1
-			stx		ptr1h
-			ldy 	#0
-outloop:	lda 	(ptr1),y
-			jsr		dev_putc
-			cmp #0;lda (ptr1),y				 ; check eos after we've written 
-			beq		doneoutputstring ; it to the stream
-			iny
-			bne 	outloop ; bne so we don't loop forever on long strings
-doneoutputstring:
-			rts
-.endproc
-			
-
 ; openfile is meant to be called by application code.
 ; pass the name of a file an AX, mode in Y
 ; returns a file handle in A, or -1 on failure
@@ -302,6 +285,26 @@ on_fail:	rts
 ;			rts
 .endproc
 
+
+
+; Writes a string to the current device, including terminating 0.
+; Maximum string length is 256 bytes.
+; String pointer in ax
+; Uses A,X,Y, ptr1
+.proc dev_writestr
+			sta 	ptr1
+			stx		ptr1h
+			ldy 	#0
+outloop:	lda 	(ptr1),y
+			jsr		dev_putc
+			cmp #0;lda (ptr1),y				 ; check eos after we've written 
+			beq		doneoutputstring ; it to the stream
+			iny
+			bne 	outloop ; bne so we don't loop forever on long strings
+doneoutputstring:
+			rts
+.endproc
+			
 
 
 ; Read bytes from the current device. 
