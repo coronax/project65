@@ -242,7 +242,7 @@ class DirectoryReader2: public FileIO
   int read_position;
   int write_position;
   struct dirent dirent;
-  char* buffer;
+  unsigned char* buffer;
 
   DirectoryReader2 (File _dir)
   {
@@ -255,7 +255,7 @@ class DirectoryReader2: public FileIO
     dir.rewindDirectory();
     read_position = 0;
     write_position = 0;
-    buffer = (char*)&dirent;
+    buffer = (unsigned char*)&dirent;
   }
   
   virtual ~DirectoryReader2 ()
@@ -295,7 +295,7 @@ class DirectoryReader2: public FileIO
         return -1;
       }
     }
-    char retval = buffer[read_position];
+    unsigned char retval = buffer[read_position];
     ++read_position;
     //Serial.println (retval);
     return retval;
