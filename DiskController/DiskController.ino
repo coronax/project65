@@ -236,13 +236,14 @@ struct dirent
 
 class DirectoryReader2: public FileIO
 {
-  public:
   File dir;
   File entry;
-  int read_position;
-  int write_position;
-  struct dirent dirent;
-  unsigned char* buffer;
+  int read_position = 0;
+  int write_position = 0;
+  struct dirent dirent = {};
+  unsigned char* buffer = (unsigned char*)&dirent;
+
+public:
 
   DirectoryReader2 (File _dir)
   {
@@ -250,15 +251,10 @@ class DirectoryReader2: public FileIO
     dir = _dir;
     // we need to rewind the directory here. otherwise, the 
     // listing will start after the last file we opened.
-    // Which says something interesting about how the SD
-    // library is implemented.
     dir.rewindDirectory();
-    read_position = 0;
-    write_position = 0;
-    buffer = (unsigned char*)&dirent;
   }
   
-  virtual ~DirectoryReader2 ()
+  ~DirectoryReader2 ()
   {
     dir.close();
     entry.close();
@@ -275,16 +271,6 @@ class DirectoryReader2: public FileIO
         dirent.d_name[12] = 0;
         dirent.d_type = entry.isDirectory()?2:1;
         dirent.d_size = entry.size();
-        /*
-        if (entry.isDirectory())
-        {
-          write_position = snprintf (command_output, buflen, "%-12s       <dir>\r\n", entry.name());          
-        }
-        else
-        {
-          write_position = snprintf (command_output, buflen, "%-12s  %10lu\r\n", entry.name(), entry.size());
-        }
-        */
         write_position = sizeof(struct dirent);
         read_position = 0;
         entry.close();
@@ -297,7 +283,6 @@ class DirectoryReader2: public FileIO
     }
     unsigned char retval = buffer[read_position];
     ++read_position;
-    //Serial.println (retval);
     return retval;
   }
   
@@ -365,6 +350,100 @@ class DirectoryReader: public FileIO
 };
 #endif
 
+
+#if 0
+// I wanted to see if bufferring read data client side would buy
+// me any speedup, and the answer is no. So the SD lib must be
+// buffering on its side.
+class BufferFileRW: public FileIO
+{
+  public:
+  File file;
+  int file_open;
+  int read_position;
+  int write_position;
+  unsigned char buffer[32];
+
+  BufferFileRW (File f)
+  {
+    file = f;
+    file_open = true;
+    read_position = 0;
+    write_position = 0;
+  }
+  
+  virtual ~BufferFileRW ()
+  {
+    if (file_open)
+      file.close();
+  }
+  
+  int getChar() override
+  {
+    if (read_position == write_position)
+    {
+      // try to get another entry
+      int num_read = file.read(buffer,32);
+      read_position = 0;
+      write_position = num_read;
+      if (num_read <= 0)
+      {
+        file.close();
+        return -1;
+      }
+    }
+    unsigned char retval = buffer[read_position];
+    ++read_position;
+    //Serial.println (retval);
+    return retval;
+  }
+
+  int putChar(char ch) override
+  {
+    if (file_open)
+    {
+      return file.write (ch);
+    }
+    else
+      return -1;
+  }
+  
+  long int seek(long int offset, int whence) override
+  {
+    //return offset; // debug
+    if (!file_open)
+      return 0x80000000 | P65_EBADF;
+    if (whence == P65_SEEK_CUR)
+    {
+      long int current = (long int)file.position();
+      if (file.seek((uint32_t)(current + offset)))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else if (whence == P65_SEEK_END)
+    {
+      long int end = (long int)file.size();
+      if (file.seek((uint32_t)(end + offset)))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else if (whence == P65_SEEK_SET)
+    {
+      if (file.seek((uint32_t)offset))
+        return (long int)file.position();
+      else
+        return 0x80000000 | P65_EIO;
+    }
+    else
+      return 0x80000000 | P65_EINVAL; // bad whence value
+  }
+
+};
+#endif
+
+
 class FileRW: public FileIO
 {
   public:
@@ -372,7 +451,7 @@ class FileRW: public FileIO
   int file_open;
   FileRW (File f)
   {
-    file = f;//SD.open(filename);
+    file = f;
     file_open = true;
   }
   
