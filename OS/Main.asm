@@ -29,13 +29,13 @@
 
 .export _commandline, RESET, crlf, print_printable
 ;.export program_address_high, program_address_low
-.export mkdir_command, rmdir_command, rm_command, cp_command ; strings shared with filesystem
+.export mkdir_command, rmdir_command, rm_command, cp_command, mv_command ; strings shared with filesystem
 .import XModem, _outputstring, sendchar, readchar, print_hex
 .import setdevice, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
 .import dev_getc, dev_writestr, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
 .import dev_read
 .import TokenizeCommandLine, test_tokenizer
-.import mkdir, rmdir, rm, cp
+.import mkdir, rmdir, rm, cp, mv
 
 ; TODO
 ;
@@ -133,8 +133,11 @@ WARMBOOT:
 		jsr init_devices
 
 		; initialize time of day clock
-		stz tod_seconds	
+		stz tod_seconds
 		stz tod_seconds+1
+		stz tod_seconds+2
+		stz tod_seconds+3
+		stz tod_seconds100
 		lda #$64
 		sta tod_int_counter
 
@@ -230,6 +233,7 @@ skip:
 		DispatchCommandLine more_command, ProcessMoreCommand
 		DispatchCommandLine rm_command, ProcessRmCommand
 		DispatchCommandLine cp_command, ProcessCpCommand
+		DispatchCommandLine mv_command, ProcessMvCommand
 		DispatchCommandLine rmdir_command, ProcessRmdirCommand
 		DispatchCommandLine save_command, ProcessSaveCommand
 		DispatchCommandLine uptime_command, UptimeCommand
@@ -253,6 +257,7 @@ mkdir_command:	.asciiz "mkdir"
 rmdir_command:	.asciiz "rmdir"
 rm_command:		.asciiz "rm"
 cp_command:     .asciiz "cp"
+mv_command: 	.asciiz "mv"
 m_command:		.asciiz "m"
 more_command:	.asciiz "more"
 load_command:	.asciiz "load"
@@ -569,6 +574,34 @@ cleanup:
 .endproc
 
 
+
+; handler for mv shell command. 
+.proc ProcessMvCommand
+		; there should be exactly 2 arguments
+		lda argc
+		cmp #3
+		beq syntax_ok
+		lda #P65_ESYNTAX
+		bra error
+syntax_ok:
+		lda argv2H		; let's try to stick arg2 in ptr2
+		sta ptr2h
+		lda argv2L
+		sta ptr2
+		lda argv1L		; arg1 in AX
+		ldx argv1H
+		jsr mv			; Call cp function!
+		cmp #0			; Check return code
+		beq cleanup
+
+error:
+		jsr perror
+
+cleanup:
+		jmp _commandline
+.endproc
+
+
 .if 0
 ; handler for commands mkdir, rmdir, rm
 .proc ProcessFileCommand
@@ -870,6 +903,10 @@ cleanup:
 
 
 .proc UptimeCommand
+		lda tod_seconds+3
+		jsr print_hex
+		lda tod_seconds+2
+		jsr	print_hex
 		lda tod_seconds+1
 		jsr print_hex
 		lda tod_seconds
@@ -888,11 +925,11 @@ msg:
 		bcc @loop
 		cpx #$FF		; check for EOF
 		beq @done2
-		jsr $FFE6
+		jsr sendchar
 		cmp #10			; if we just wrote a newline
 		bne @loop
 		lda #13			; add a carriage return
-		jsr $FFE6		
+		jsr sendchar
 		bra @loop
 @done2:	rts
 .endproc
@@ -1348,13 +1385,23 @@ prompt:
 s6522_timer1:	
 		; if it was, the only thing we're doing now is timer1
 		lda VIA_TIMER1_CL	; read to clear interrupt flag
-		dec tod_int_counter
+		;dec tod_int_counter
+		;bne done_timer
+		;lda #$64	; so we update counter 1 every 100th interrupt
+		;sta tod_int_counter
+
+		inc tod_seconds100
+		lda tod_seconds100
+		cmp #100
 		bne done_timer
-		lda #$64	; so we update counter 1 every 100th interrupt
-		sta tod_int_counter
+		stz tod_seconds100	; 
 		inc tod_seconds
 		bne done_timer		; if we rollover to 0, inc counter+1 also.
 		inc tod_seconds+1
+		bne done_timer
+		inc tod_seconds+2
+		bne done_timer
+		inc tod_seconds+3
 
 done_timer:
 		jsr Max3100_TimerIRQ

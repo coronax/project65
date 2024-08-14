@@ -31,12 +31,12 @@
 
 .include "os3.inc"
 .import set_filename, setdevice, dev_writestr, dev_getc, dev_putc
-.import mkdir_command, rmdir_command, rm_command, cp_command
-.export mkdir, rmdir, rm, cp;, mv, cp
+.import mkdir_command, rmdir_command, rm_command, cp_command, mv_command
+.export mkdir, rmdir, rm, cp, mv
 
 
 ; Create a new directory 
-; AX points to a string with a pathname relative to current directory.
+; AX points to a string with a pathname relative to /.
 ; Returns: P65_EOK or error code in A
 ; Modifies AXY, ptr1
 .proc mkdir
@@ -48,6 +48,11 @@
         jmp dos_singlearg
 .endproc
 
+
+; Remove a directory, which must be empty
+; AX points to a string with a pathname relative to /.
+; Returns: P65_EOK or error code in A
+; Modifies AXY, ptr1
 .proc rmdir
         jsr set_filename
         lda #1
@@ -57,6 +62,11 @@
         jmp dos_singlearg
 .endproc
 
+
+; Remove a directory, which must be empty
+; AX points to a string with a pathname relative to /.
+; Returns: P65_EOK or error code in A
+; Modifies AXY, ptr1
 .proc rm
         jsr set_filename
         lda #1
@@ -65,6 +75,7 @@
         ldx #>rm_command
         jmp dos_singlearg
 .endproc
+
 
 ; helper for mkdir etc. expects operator string in AX,
 ; argument in DEVICE_FILENAME, and current device is SD command.
@@ -81,6 +92,10 @@
 .endproc
 
 
+; Copy a file
+; AX is the src filename, ptr2 contains the dest name.
+; Returns: P65_EOK or error code in A
+; Modifies AXY, ptr1
 .proc cp
         jsr set_filename
         lda #1
@@ -91,12 +106,27 @@
 .endproc
 
 
+; Move a file
+; AX is the src filename, ptr2 contains the dest name.
+; Unfortunately this is a copy and then delete...
+; Returns: P65_EOK or error code in A
+; Modifies AXY, ptr1
+.proc mv
+        jsr set_filename
+        lda #1
+        jsr setdevice      ; send to SD card command channel.
+        lda #<mv_command
+        ldx #>mv_command
+        jmp dos_doublearg
+.endproc
+
+
 ; helper for cp & mv. expects operator string in AX,
 ; src argument in DEVICE_FILENAME, dest argument in ptr2
 ; and current device is SD command channel.
 ; Modifiees AXY, ptr1, ptr2
 .proc dos_doublearg
-        jsr dev_writestr
+        jsr dev_writestr    ; Write the command string which is in AX
         lda DEVICE_FILENAME
         ldx DEVICE_FILENAME+1
         jsr dev_writestr    ; Write source name

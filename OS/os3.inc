@@ -77,15 +77,18 @@ O_EXCL          = $80
 ; $0200-$0205 are for IRQ and NMI redirection
 
 ; Real-time clock
-		; # of seconds since started (16 bit)
-tod_seconds 	= $0206
-tod_secondsH	= $0207
+		; # of seconds since started (32-bit, since that's what c lib wants)
+tod_seconds 	= $0206 ; tod seconds lsb
+tod_seconds2	= $0207
+tod_seconds3	= $0208
+tod_seconds4	= $0209 ; tod seconds MSB
+tod_seconds100  = $020a ; hundredths of seconds; effectively a count of clock interrupts
 
 		; countdown # of interrupts per second.
-tod_int_counter = $0208
+tod_int_counter = $020b ; deprecated?
 
-spi_readbuffer	= $0209	; Used by spibyte
-spi_writebuffer	= $020a	; Used by spibyte
+spi_readbuffer	= $020c	; Used by spibyte
+spi_writebuffer	= $020d	; Used by spibyte
 
 program_address_low=$20f		; pointers to begin/end of current loaded 
 program_address_high=$210		

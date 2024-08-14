@@ -1,6 +1,6 @@
 
 .include "os3.inc"
-.export TokenizeCommandLine, test_tokenizer
+.export TokenizeCommandLine
 .import _outputstring, _commandline, crlf
 .import print_printable, print_hex, sendchar
 
@@ -88,6 +88,7 @@ done_tokenize:
         rts
 .endproc
 
+.if 0
 testmsg1: .byte "Finished parsing command line", CR, LF, 0
 testmsg2: .byte "Finished printing args", CR, LF, 0
 
@@ -136,7 +137,7 @@ done:
         printstring testmsg2
         jmp _commandline
 .endproc
-
+.endif
 
 ; Put the start address in ptr2
 .proc PrintMemory
