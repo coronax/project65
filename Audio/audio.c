@@ -2,58 +2,39 @@
 
 #include <stdlib.h>
 //#include <conio.h>
-//#include <stdio.h>
+#include <stdio.h>
 #include <string.h>
 
 // declarations for asm functions
 
-void __fastcall__ sendchar (char ch);
+//void __fastcall__ sendchar (char ch);
 
-void __fastcall__ print_hex (char ch);
-
-void __fastcall__ outputstring(char* ch);
-//extern void __fastcall__ (*outputstring)(char* ch);
+//void __fastcall__ print_hex (char ch);
 
 void __fastcall__ XModem (void);
-//void __fastcall__ (*XModem)(void);
 
-void __fastcall__ disable_interrupts (void)
-{
-	__asm__ ("sei");
-}
+//void __fastcall__ disable_interrupts (void)
+//{
+//	__asm__ ("sei");
+//}
 
 void __fastcall__ sleep(int ms);
 
 /** Blocking version of get character. */
-char __fastcall__ getch (void);
-/*
-{
-	__asm__ (\
-	"		clc\
-	get:     jsr $FFE9\
-			bcc get\
-			"\
-	\
-	);
-}
-*/
+//char __fastcall__ getch (void);
 
-#if 1
+
+
 char command_buffer[80];
 
-//char* image_buffer;
-//int image_buffer_size;
-//int image_buffer_filled;
 
+#if 0
 void ReadCommand()
 {
 	int i = 0;
 	char ch;
 	command_buffer[0] = 0;
-	//outputstring ("btw, ReadCommand::i is at 0x");
-	//_print_hex(((int)(&i))>>8);
-	//_print_hex(((int)(&i))&0xff);
-	//while (i < 79)
+
 	for (;;)
 	{
 		ch = getch();
@@ -85,11 +66,9 @@ void ReadCommand()
 	}
 	command_buffer[i] = 0;
 }
-
-
-
-//char test_data[] = "bah weep granna weep";
 #endif
+
+
 
 unsigned char GetHexit (unsigned char c)
 {
@@ -2002,8 +1981,6 @@ void PlaySong()
 
 int main (void)
 {
-//	outputstring = outputstring;
-//	sendchar = _sendcharar;
 //	_print_hex = _print_hex;
 //	char** xmodem_save_addr = (char**)0x020c;
 	unsigned char val1, val2;
@@ -2011,33 +1988,17 @@ int main (void)
 	unsigned char ch;
 	int i = 0;
 	
-	disable_interrupts();
-	outputstring ("Audio test.\r\n");
+	//disable_interrupts();
+	printf ("Audio test.\r\n");
 
-	outputstring ("Initializing audio system. \r\n");
+	printf ("Initializing audio system. \r\n");
 	*r1 = 0xff;
 
-#if 0
-	// a quick test
-	for (i = 0, ch = 0; i < 16; ++i, ch += 16)
-	{
-		*r1 = ch;
-		sleep(2000);
-	}
-	*r1 = 0xff;
-#endif
-
-	#if 0
-	outputstring ("Playing \"Jingle Bells\".\r\n");
-	// a more seasonal test
-	PlaySong();
-	outputstring ("Finished song.\r\n");
-	outputstring ("\r\n\r\nHappy Holidays!\r\n");
-	#endif
 	
 	for (;;)
 	{
-		ReadCommand();
+		fgets (command_buffer, 80, stdin);
+		//ReadCommand();
 		if (command_buffer[0] == 'q')
 			break;
 		else if (command_buffer[0] == 's')
@@ -2072,11 +2033,10 @@ int main (void)
 			val2 = GetHexit(command_buffer[1]);
 			if ((val1 > 15) || (val2 > 15))
 			{
-				outputstring ("Invalid hex code\r\n");
+				printf ("Invalid hex code\r\n");
 			}
 			else
 			{
-				//*(unsigned char*)(0xa000) = (val1 << 4) | val2;
 				*r1 = (val1 << 4) | val2;
 				sleep(2000);
 				*r1 = 0xff;
