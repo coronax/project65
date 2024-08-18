@@ -1,8 +1,37 @@
 
+;; Project:65 OS 3
+;; Copyright (c) 2013 Christopher Just
+;; All rights reserved.
+;;
+;; Redistribution and use in source and binary forms, with or without 
+;; modification, are permitted provided that the following conditions 
+;; are met:
+;;
+;;    Redistributions of source code must retain the above copyright 
+;;    notice, this list of conditions and the following disclaimer.
+;;
+;;    Redistributions in binary form must reproduce the above 
+;;    copyright notice, this list of conditions and the following 
+;;    disclaimer in the documentation and/or other materials 
+;;    provided with the distribution.
+;;
+;; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+;; "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+;; LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS 
+;; FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE 
+;; COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, 
+;; INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
+;; BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; 
+;; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER 
+;; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, 
+;; STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+;; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED 
+;; OF THE POSSIBILITY OF SUCH DAMAGE.
+
 .include "os3.inc"
 .export TokenizeCommandLine
-.import _outputstring, _commandline, crlf
-.import print_printable, print_hex, sendchar
+.import _print_string, _commandline, crlf
+.import print_printable, _print_hex, _print_char
 
 
 ; Tokenize the command line. The command line can be found in buffer ($0240).
@@ -119,11 +148,11 @@ print_token:
         tax
         dey
         lda (ptr2),y
-        jsr _outputstring
+        jsr _print_string
 
         ldx #>crlf
         lda #<crlf
-        jsr _outputstring
+        jsr _print_string
 
         plx
         dex
@@ -147,61 +176,61 @@ done:
 @loop:  
 		phx
         lda #'m'
-        jsr sendchar
+        jsr _print_char
         lda #'.'
-        jsr sendchar
+        jsr _print_char
 
         lda ptr2h
-        jsr print_hex
+        jsr _print_hex
         lda ptr2
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
-        jsr sendchar
+        jsr _print_char
+        jsr _print_char
 
         ldy #0
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
+        jsr _print_char
         iny
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
+        jsr _print_char
         iny
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
+        jsr _print_char
         iny
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         iny
 		
         lda #' '
-        jsr sendchar
+        jsr _print_char
 
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
+        jsr _print_char
         iny
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
+        jsr _print_char
         iny
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
+        jsr _print_char
         iny
         lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
 		
 		lda #' '
-		jsr sendchar
+		jsr _print_char
 		
 		ldy #0
 @loop2:	lda (ptr2),y
@@ -212,9 +241,9 @@ done:
 		
         ;printstring crlf
 		lda #CR
-		jsr sendchar
+		jsr _print_char
 		lda #LF
-		jsr sendchar
+		jsr _print_char
 
 		clc					; increment loop
 		lda ptr2

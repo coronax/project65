@@ -30,7 +30,7 @@
 .export _commandline, RESET, crlf, print_printable
 ;.export program_address_high, program_address_low
 .export mkdir_command, rmdir_command, rm_command, cp_command, mv_command ; strings shared with filesystem
-.import XModem, _outputstring, sendchar, readchar, print_hex
+.import XModem, _print_string, _print_char, _read_char, _print_hex
 .import setdevice, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
 .import dev_getc, dev_writestr, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
 .import dev_read
@@ -176,9 +176,9 @@ WARMBOOT:
         printstring prompt
         ldx #0
 loop:
-        jsr readchar
+        jsr _read_char
         bcc loop
-        jsr sendchar           ; echo
+        jsr _print_char           ; echo
         sta buffer,x
         cmp #13                 ; carriage return
         beq outputsection
@@ -317,11 +317,11 @@ done_false:
 .proc perror
 	and #$7f	; clear high bit
 	pha
-	jsr print_hex
+	jsr _print_hex
 	lda #':'
-	jsr sendchar
+	jsr _print_char
 	lda #' '
-	jsr sendchar
+	jsr _print_char
 	pla
 	asl
 	tay
@@ -333,7 +333,7 @@ done_false:
 loop:
 	lda (ptr1),y
 	beq done
-	jsr sendchar
+	jsr _print_char
 	iny
 	bra loop
 done:
@@ -800,14 +800,14 @@ done:
 
         printstring loadmsg
         lda program_address_high
-        jsr print_hex
+        jsr _print_hex
         lda program_address_low
-        jsr print_hex
+        jsr _print_hex
 		printstring loadmsg2
         lda program_end_high
-        jsr print_hex
+        jsr _print_hex
         lda program_end_low
-        jsr print_hex
+        jsr _print_hex
         printstring crlf
 
 		; at this point we should wait for the send buffer to
@@ -904,13 +904,13 @@ cleanup:
 
 .proc UptimeCommand
 		lda tod_seconds+3
-		jsr print_hex
+		jsr _print_hex
 		lda tod_seconds+2
-		jsr	print_hex
+		jsr	_print_hex
 		lda tod_seconds+1
-		jsr print_hex
+		jsr _print_hex
 		lda tod_seconds
-		jsr print_hex
+		jsr _print_hex
 		printstring msg
 		jmp _commandline
 msg:
@@ -925,11 +925,11 @@ msg:
 		bcc @loop
 		cpx #$FF		; check for EOF
 		beq @done2
-		jsr sendchar
+		jsr _print_char
 		cmp #10			; if we just wrote a newline
 		bne @loop
 		lda #13			; add a carriage return
-		jsr sendchar
+		jsr _print_char
 		bra @loop
 @done2:	rts
 .endproc
@@ -1031,23 +1031,23 @@ syntax_ok:
 line_loop:  
 		phx
         lda #'m'
-        jsr sendchar
+        jsr _print_char
         lda #'.'
-        jsr sendchar
+        jsr _print_char
 
         lda ptr2h
-        jsr print_hex
+        jsr _print_hex
         lda ptr2
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
-        jsr sendchar
+        jsr _print_char
+        jsr _print_char
 
         ldy #0				; Print 8 bytes of memory in hex
 lp1:    lda (ptr2),y
-        jsr print_hex
+        jsr _print_hex
         lda #' '
-        jsr sendchar
+        jsr _print_char
         iny
 		cpy #8
 		bne lp1
@@ -1061,9 +1061,9 @@ lp2:	lda (ptr2),y		; characters.
 		
         ;printstring crlf
 		lda #CR
-		jsr sendchar
+		jsr _print_char
 		lda #LF
-		jsr sendchar
+		jsr _print_char
 
 		clc					; increment loop
 		lda ptr2
@@ -1098,7 +1098,7 @@ cleanup:
 unprintable:
 		lda #'.'
 printable:
-		jmp sendchar
+		jmp _print_char
 .endproc
 
 
@@ -1133,17 +1133,17 @@ run_code:
 		; and then doing an indirect jmp.
 		lda #>program_return
 		pha
-		;jsr print_hex
+		;jsr _print_hex
 		lda #<program_return
 		pha
-		;jsr print_hex
+		;jsr _print_hex
 		stz program_ret		; Initialize program return value.
 		jmp	(ptr2)
 program_return:
 		nop					; The jsr return will skip over this instruction.
 		printstring return_msg
 		lda program_ret
-		jsr print_hex
+		jsr _print_hex
 		printstring crlf
 		; Jumping to soft reset at the end of the program is the safest option
 		; because it guarantees we'll be in a known state regardless of how
@@ -1181,14 +1181,14 @@ return_msg:	.asciiz "Program returned "
         printstring crlf
         printstring xmsg
         lda program_address_high
-        jsr print_hex
+        jsr _print_hex
         lda program_address_low
-        jsr print_hex
+        jsr _print_hex
 		printstring xmsg2
         lda program_end_high
-        jsr print_hex
+        jsr _print_hex
         lda program_end_low
-        jsr print_hex
+        jsr _print_hex
         printstring crlf
 		; So how can we jsr into our downloaded program?  
 		; One option is to push the address onto the stack and then rts
@@ -1467,9 +1467,9 @@ LAB_2D99:
 endmemtest:
 			printstring ram_test_string1
 			lda 	ADDR+1
-			jsr 	print_hex
+			jsr 	_print_hex
 			lda 	ADDR
-			jsr 	print_hex
+			jsr 	_print_hex
 			printstring ram_test_string2
 			rts
 

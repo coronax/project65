@@ -27,10 +27,10 @@
 ;; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED 
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
-.export _outputstring, sendchar, readchar, print_hex 
-.export SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, Max3100_IRQ, Max3100_TimerIRQ
-
 .include "os3.inc"
+.export _print_char, _read_char ; shortcuts to print/read direct from the terminal.
+.export SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, Max3100_IRQ, Max3100_TimerIRQ
+.import _print_string
 
 ; Max3100 Driver 2.0
 ; This version of the Max3100 driver is interrupt-based and uses
@@ -115,8 +115,8 @@
 
 ; These names are used in places where I want to send data out the
 ; serial port without using the device interface.
-readchar = SERIAL_GETC	
-sendchar = SERIAL_PUTC
+_read_char = SERIAL_GETC	
+_print_char = SERIAL_PUTC
 
 
 ; wrapper around putting a character into the write buffer.
@@ -495,43 +495,5 @@ write_zero_bit:
 		
 
 
-; Prints a zero-terminated string of up to 255 characters	
-; Uses A, Y, and ptr1		
-_outputstring:
-        sta ptr1
-        stx ptr1h
-        ldy #0
-outloop: lda (ptr1),y
-        beq doneoutputstring
-        jsr sendchar
-        iny
-        bne outloop ; bne so we don't loop forever on long strings
-doneoutputstring:
-        rts
-
 		
 		
-; prints the 2-character hex representation
-; of the value in A. Does not preserve A!
-; Uses A, X
-print_hex:
-			pha
-		   ; sta temp
-			ror
-			ror
-			ror
-			ror
-			and #$0F
-			tax
-			lda hexits,x
-			jsr sendchar
-			pla
-		   ; lda temp
-			and #$0F
-			tax
-			lda hexits,x
-			jmp sendchar ; cheap rts
-
-hexits:
-			.byte "0123456789ABCDEF"
-

@@ -182,7 +182,7 @@ ptr2h	= $ec
 .macro printstring string
         lda #<string
         ldx #>string
-        jsr _outputstring
+        jsr _print_string
 .endmacro
 
 .macro writedevice fd, string

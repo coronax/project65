@@ -33,7 +33,7 @@
 .import SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC
 .import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 .import TTY_IOCTL, TTY_GETC, TTY_OPEN, TTY_CLOSE
-.import _outputstring
+.import _print_string
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
 .export dev_close, init_devices, openfile
 .export dev_seek, dev_tell, dev_get_status

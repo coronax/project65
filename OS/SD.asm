@@ -36,7 +36,7 @@
 
 .include "OS3.inc"
 .export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
-.import print_hex, PutChar
+.import _print_hex, _print_char
 
 .pc02
 		
@@ -326,42 +326,42 @@ return:		ply						; pull dev channel off of stack
 			
 			lda		#'k'			; seek command (l & s were already used)
 			jsr		SD_PUTC
-			jsr		print_hex
+			jsr		_print_hex
 
 			tya					; The channel we're seeking on.
 			jsr		SD_PUTC
-			jsr		print_hex
+			jsr		_print_hex
 
 			lda		ptr1
 			jsr		SD_PUTC
-			jsr		print_hex
+			jsr		_print_hex
 			lda		ptr1h
 			jsr		SD_PUTC
-			jsr		print_hex
+			jsr		_print_hex
 			lda		ptr2
 			jsr		SD_PUTC
-			jsr		print_hex
+			jsr		_print_hex
 			lda		ptr2h
 			jsr		SD_PUTC
-			jsr		print_hex
+			jsr		_print_hex
 
 			pla		; recover whence
 			jsr		SD_PUTC
-			jsr		print_hex
+			jsr		_print_hex
 
 			; read back a 4-byte value
 			jsr		SD_GETC
 			sta		ptr1
-			jsr		print_hex
+			jsr		_print_hex
 			jsr		SD_GETC
 			sta		ptr1h
-			jsr		print_hex
+			jsr		_print_hex
 			jsr		SD_GETC
 			sta		ptr2
-			jsr		print_hex
+			jsr		_print_hex
 			jsr		SD_GETC
 			sta		ptr2h
-			jsr		print_hex
+			jsr		_print_hex
 
 			sty		DEVICE_CHANNEL	; done reading, restore device channel
 

@@ -27,15 +27,15 @@
 ;; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED 
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
-.import _commandline, _outputstring, dev_putc, dev_getc, print_hex 
-.import readchar, sendchar, setdevice, dev_open, dev_close
+.import _commandline, _print_string, _print_hex, _read_char, _print_char
+.import setdevice, dev_open, dev_close, dev_putc, dev_getc
 .import set_filename, set_filemode, openfile
 .import dev_ioctl, dev_seek, dev_tell, dev_get_status
 .import mkdir, rmdir, rm, cp, mv
 .import RESET
-.export PutChar, GetChar, SET_FILENAME, SET_FILEMODE, DEV_OPEN, DEV_CLOSE, DEV_PUTC, DEV_GETC
-.export DEV_SEEK, DEV_GET_STATUS
-.export FS_MKDIR, FS_RMDIR, FS_RM, FS_CP, FS_MV
+;.export PutChar, GetChar, SET_FILENAME, SET_FILEMODE, DEV_OPEN, DEV_CLOSE, DEV_PUTC, DEV_GETC
+;.export DEV_SEEK, DEV_GET_STATUS
+;.export FS_MKDIR, FS_RMDIR, FS_RM, FS_CP, FS_MV
 
 
 .segment "kernal_table"
@@ -55,19 +55,16 @@ SET_FILEMODE:   jmp set_filemode        ; FFD9
 DEV_OPEN:       jmp dev_open            ; FFDC open current device
 DEV_CLOSE:      jmp dev_close           ; FFDF close current device
 CommandLine:    jmp _commandline        ; FFE2
-OutputString:   jmp _outputstring       ; FFE5
-PutChar:        jmp sendchar            ; FFE8 serial-specific routine
-GetChar:        jmp readchar            ; FFEB serial-specific routine
-PutHexit:       jmp print_hex           ; FFEE
+Print_String:   jmp _print_string       ; FFE5
+Print_Char:     jmp _print_char         ; FFE8 serial-specific routine
+Read_Char:      jmp _read_char          ; FFEB serial-specific routine
+PutHexit:       jmp _print_hex          ; FFEE
 DEV_PUTC:       jmp dev_putc            ; FFF1 writes character to current device
 DEV_GETC:       jmp dev_getc            ; FFF4 reads character from current device
 SETDEVICE:      jmp setdevice           ; FFF7 sets current device - see devtab.asm
 
-; pad out to $FFFA
-;.byte $00, $00 
-
 ; interrupt vectors
 .word $0200           	                ; NMI at $FFFA
-.word RESET				; RESET at $FFFC
+.word RESET				                ; RESET at $FFFC
 .word $0203           	                ; IRQ at $FFFE
 
