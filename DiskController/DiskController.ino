@@ -42,8 +42,6 @@
   // Todo: Management of current directory, cwd
   // support, etc.
 
-  // redo directory reading in a more useful way.
-
   // Todo: Refactor to get rid of dynamic allocation.
 
   // Todo: detect SD Card removal/insertion?
@@ -53,37 +51,38 @@
 
 #include <SD.h>
 #include <stdlib.h>
+#include <string.h>
 
 // P65 uses the values that cc65 defines in its fcntl.h. These differ
 // from Arduino SDK, Linux, etc.
-#define P65_O_RDONLY 0x01
-#define P65_O_WRONLY 0x02
-#define P65_O_RDWR   0x03
-#define P65_O_CREAT  0x10
-#define P65_O_TRUNC  0x20
-#define P65_O_APPEND 0x40
-#define P65_O_EXCL   0x80
+constexpr uint8_t P65_O_RDONLY = 0x01;
+constexpr uint8_t P65_O_WRONLY = 0x02;
+constexpr uint8_t P65_O_RDWR   = 0x03;
+constexpr uint8_t P65_O_CREAT  = 0x10;
+constexpr uint8_t P65_O_TRUNC  = 0x20;
+constexpr uint8_t P65_O_APPEND = 0x40;
+constexpr uint8_t P65_O_EXCL   = 0x80;
 
 // P65 errno values. These are based off the cc65 errno values, but with
 // bit 7 set so they're all negative values (except EOK).
-#define P65_EOK    0
-#define P65_ENOENT   0x80 |  1
-#define P65_EINVAL   0x80 |  7
-#define P65_EEXIST   0x80 |  9
-#define P65_EIO      0x80 | 11
-#define P65_ENOSYS   0x80 | 13
-#define P65_EBADF    0x80 | 16
-#define P65_EUNKNOWN 0x80 | 18
-#define P65_ENOTDIR  0x80 | 20
-#define P65_EISDIR   0x80 | 21
-#define P65_EBADCMD  0x80 | 22
+constexpr uint8_t P65_EOK      = 0;
+constexpr uint8_t P65_ENOENT   = 0x80 |  1;
+constexpr uint8_t P65_EINVAL   = 0x80 |  7;
+constexpr uint8_t P65_EEXIST   = 0x80 |  9;
+constexpr uint8_t P65_EIO      = 0x80 | 11;
+constexpr uint8_t P65_ENOSYS   = 0x80 | 13;
+constexpr uint8_t P65_EBADF    = 0x80 | 16;
+constexpr uint8_t P65_EUNKNOWN = 0x80 | 18;
+constexpr uint8_t P65_ENOTDIR  = 0x80 | 20;
+constexpr uint8_t P65_EISDIR   = 0x80 | 21;
+constexpr uint8_t P65_EBADCMD  = 0x80 | 22;
 
 // The SD library doesn't actually use the lseek "whence" values, but they
 // do get defined somewhere. These are copies of the values used by P:65,
 // which come from cc65.
-#define P65_SEEK_CUR        0
-#define P65_SEEK_END        1
-#define P65_SEEK_SET        2
+constexpr uint8_t P65_SEEK_CUR = 0;
+constexpr uint8_t P65_SEEK_END = 1;
+constexpr uint8_t P65_SEEK_SET = 2;
 
 
 
@@ -743,6 +742,13 @@ char HandleDeleteDirectory (char* command_buffer)
       f.close();
       return P65_ENOTDIR;
     }
+    f.rewindDirectory();
+    if (File f2 = f.openNextFile())
+    {
+      f2.close();
+      f.close();
+      return P65_EEXIST;
+    }
     f.close();
   }
   if (SD.rmdir(filename))
@@ -769,7 +775,6 @@ char HandleMkdir (char* command_buffer)
 
 char HandleCpFile (char* command_buffer)
 {
-  // The documentation is a little vague, but I assume RAII applies to File.
   constexpr int buflen = 64;
   char buffer[buflen];
   char* src_filename = command_buffer + 3;
@@ -778,13 +783,21 @@ char HandleCpFile (char* command_buffer)
 
   if ((src_filename[0] == '\0') || (dst_filename[0] == '\0'))
     return P65_EINVAL;
+  // SD library doesn't give me any exact way to tell if two files are
+  // the same thing, but we'll try to canonicalize as much as possible.
+  if (src_filename[0] == '/')
+    src_filename += 1;
+  if ((dst_filename[0] == '/') && (dst_filename[1] != 0))
+    dst_filename += 1;
+  if (0 == strcasecmp (src_filename, dst_filename))
+    return P65_EINVAL;
   if (!SD.exists(src_filename))
     return P65_ENOENT;
 
   //return P65_EBADCMD;
 
 #if 1
-  if (src = SD.open(src_filename, FILE_READ))
+  if (src = SD.open(src_filename, FILE_READ | O_WRONLY))
   {
     if (src.isDirectory())
     {
@@ -795,7 +808,7 @@ char HandleCpFile (char* command_buffer)
   }
   else
   {
-    src.close();
+    //src.close();
     return P65_EIO;
   }
 
