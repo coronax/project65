@@ -52,6 +52,7 @@
 #include <SD.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 // P65 uses the values that cc65 defines in its fcntl.h. These differ
 // from Arduino SDK, Linux, etc.
@@ -71,6 +72,7 @@ constexpr uint8_t P65_EINVAL   = 0x80 |  7;
 constexpr uint8_t P65_EEXIST   = 0x80 |  9;
 constexpr uint8_t P65_EIO      = 0x80 | 11;
 constexpr uint8_t P65_ENOSYS   = 0x80 | 13;
+constexpr uint8_t P65_ERANGE   = 0x80 | 15;
 constexpr uint8_t P65_EBADF    = 0x80 | 16;
 constexpr uint8_t P65_EUNKNOWN = 0x80 | 18;
 constexpr uint8_t P65_ENOTDIR  = 0x80 | 20;
@@ -84,6 +86,9 @@ constexpr uint8_t P65_SEEK_CUR = 0;
 constexpr uint8_t P65_SEEK_END = 1;
 constexpr uint8_t P65_SEEK_SET = 2;
 
+// Indices of the first and last file channels. Command channel is 0.
+constexpr int MIN_CHANNEL = 1;
+constexpr int MAX_CHANNEL  = 2;
 
 
 constexpr int data0 = 1;
@@ -216,6 +221,7 @@ int command_buffer_index = 0;
 char command_output[buflen];
 //int command_output_index = 0;
 
+
 class FileIO
 {
   public:
@@ -226,12 +232,15 @@ class FileIO
 };
 
 
+
 struct dirent
 {
   char d_name[13]; // 8.3 plus terminating zero
   char d_type;     // 1 for regular file, 2 for directory
   uint32_t d_size; // file size in bytes
 };
+
+
 
 class DirectoryReader2: public FileIO
 {
@@ -283,164 +292,9 @@ public:
     unsigned char retval = buffer[read_position];
     ++read_position;
     return retval;
-  }
-  
+  }  
 };
 
-#if 0
-// old string-format directory reader
-class DirectoryReader: public FileIO
-{
-  public:
-  File dir;
-  File entry;
-  int read_position;
-  int write_position;
-  int count;
-  DirectoryReader (char* dirname)
-  {
-    dir = SD.open(dirname);
-    // we need to rewind the directory here. otherwise, the 
-    // listing will start after the last file we opened.
-    // Which says something interesting about how the SD
-    // library is implemented.
-    dir.rewindDirectory();
-    read_position = 0;
-    write_position = 0;
-    count = 0;
-  }
-  
-  virtual ~DirectoryReader ()
-  {
-    dir.close();
-    entry.close();
-  }
-  
-  int getChar() override
-  {
-    if (read_position == write_position)
-    {
-      // try to get another entry
-      if (entry = dir.openNextFile())
-      {
-        if (entry.isDirectory())
-        {
-          write_position = snprintf (command_output, buflen, "%-12s       <dir>\r\n", entry.name());          
-        }
-        else
-        {
-          write_position = snprintf (command_output, buflen, "%-12s  %10lu\r\n", entry.name(), entry.size());
-        }
-        read_position = 0;
-        entry.close();
-      }
-      else
-      {
-        dir.close();
-        return -1;
-      }
-    }
-    char retval = command_output[read_position];
-    ++read_position;
-    //Serial.println (retval);
-    return retval;
-  }
-  
-};
-#endif
-
-
-#if 0
-// I wanted to see if bufferring read data client side would buy
-// me any speedup, and the answer is no. So the SD lib must be
-// buffering on its side.
-class BufferFileRW: public FileIO
-{
-  public:
-  File file;
-  int file_open;
-  int read_position;
-  int write_position;
-  unsigned char buffer[32];
-
-  BufferFileRW (File f)
-  {
-    file = f;
-    file_open = true;
-    read_position = 0;
-    write_position = 0;
-  }
-  
-  virtual ~BufferFileRW ()
-  {
-    if (file_open)
-      file.close();
-  }
-  
-  int getChar() override
-  {
-    if (read_position == write_position)
-    {
-      // try to get another entry
-      int num_read = file.read(buffer,32);
-      read_position = 0;
-      write_position = num_read;
-      if (num_read <= 0)
-      {
-        file.close();
-        return -1;
-      }
-    }
-    unsigned char retval = buffer[read_position];
-    ++read_position;
-    //Serial.println (retval);
-    return retval;
-  }
-
-  int putChar(char ch) override
-  {
-    if (file_open)
-    {
-      return file.write (ch);
-    }
-    else
-      return -1;
-  }
-  
-  long int seek(long int offset, int whence) override
-  {
-    //return offset; // debug
-    if (!file_open)
-      return 0x80000000 | P65_EBADF;
-    if (whence == P65_SEEK_CUR)
-    {
-      long int current = (long int)file.position();
-      if (file.seek((uint32_t)(current + offset)))
-        return (long int)file.position();
-      else
-        return 0x80000000 | P65_EIO;
-    }
-    else if (whence == P65_SEEK_END)
-    {
-      long int end = (long int)file.size();
-      if (file.seek((uint32_t)(end + offset)))
-        return (long int)file.position();
-      else
-        return 0x80000000 | P65_EIO;
-    }
-    else if (whence == P65_SEEK_SET)
-    {
-      if (file.seek((uint32_t)offset))
-        return (long int)file.position();
-      else
-        return 0x80000000 | P65_EIO;
-    }
-    else
-      return 0x80000000 | P65_EINVAL; // bad whence value
-  }
-
-};
-#endif
 
 
 class FileRW: public FileIO
@@ -495,9 +349,13 @@ class FileRW: public FileIO
     {
       long int end = (long int)file.size();
       if (file.seek((uint32_t)(end + offset)))
+      {
         return (long int)file.position();
+      }
       else
+      {
         return 0x80000000 | P65_EIO;
+      }
     }
     else if (whence == P65_SEEK_SET)
     {
@@ -550,8 +408,8 @@ class CommandResponse: public FileIO
 };
 
 
-FileIO* channel_io[3] = {NULL,NULL,NULL};
-char state = ' ';
+FileIO* channel_io[MAX_CHANNEL+1] = {};
+
 
 
 void setup()
@@ -583,8 +441,8 @@ void setup()
       
   //Serial.begin (9600);
 
-  state = ' ';
 }
+
 
 
 // The values in SD library for mode flags don't match the values used by
@@ -609,6 +467,7 @@ char TranslateMode (char in)
 }
 
 
+
 /** Parse a file open command and create file reader/writer.
  *  Returns a CommandResponse object with status and an
  *  optional error message.
@@ -625,7 +484,7 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
   }
   
   int channel = command_buffer[1] - 48;  // convert ascii to int
-  if (channel < 1 || channel > 3)
+  if (channel < MIN_CHANNEL || channel > MAX_CHANNEL)
   {
     char error = P65_EINVAL;
     return new CommandResponse (&error, 1);
@@ -705,6 +564,7 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
 }
 
 
+
 char HandleDeleteFile (char* command_buffer)
 {
   char* filename = command_buffer + 3;
@@ -726,6 +586,7 @@ char HandleDeleteFile (char* command_buffer)
   else
     return P65_EIO;
 }
+
 
 
 char HandleDeleteDirectory (char* command_buffer)
@@ -758,6 +619,7 @@ char HandleDeleteDirectory (char* command_buffer)
 }
 
 
+
 char HandleMkdir (char* command_buffer)
 {
   char* filename = command_buffer + 6;
@@ -773,7 +635,7 @@ char HandleMkdir (char* command_buffer)
 
 
 
-char HandleCpFile (char* command_buffer)
+char HandleCopyFile (char* command_buffer)
 {
   constexpr int buflen = 64;
   char buffer[buflen];
@@ -793,8 +655,6 @@ char HandleCpFile (char* command_buffer)
     return P65_EINVAL;
   if (!SD.exists(src_filename))
     return P65_ENOENT;
-
-  //return P65_EBADCMD;
 
 #if 1
   if (src = SD.open(src_filename, FILE_READ | O_WRONLY))
@@ -877,23 +737,65 @@ char HandleCpFile (char* command_buffer)
 char HandleFileClose (char* command_buffer)
 {
   int channel = command_buffer[1] - 48; // cheap conversion
-  if (channel < 1 || channel > 3)
+  if (channel < MIN_CHANNEL || channel > MAX_CHANNEL)
     return P65_EINVAL;
   delete (channel_io[channel]);
-  channel_io[channel] = 0;
+  channel_io[channel] = nullptr;
   return P65_EOK;
 }
+
+
+
+long HandleFileSeek (char* command_buffer)
+{
+  if (strlen(command_buffer) != 11)
+    return 0x80000000 | P65_EINVAL;
+
+  int channel = command_buffer[1] - 48; // cheap conversion
+  if (channel < MIN_CHANNEL || channel > MAX_CHANNEL)
+    return 0x80000000 | P65_EINVAL;
+  int whence = command_buffer[10] - 48;
+  if ((whence < 0) || (whence > 3))
+    return 0x80000000 | P65_EINVAL;
+  command_buffer[10] = 0; // provide a terminator for strtoul below
+  char* end;
+  errno = 0; // clear errno so we can know if strtoul fails.
+  // In order to convert negative offset values correctly, we convert the 
+  // 8 character hex value to an unsigned long, then cast it to signed.
+  unsigned long uoffset = strtoul(command_buffer+2, &end, 16);
+  long int offset = (long)uoffset;
+  if ((errno == ERANGE) || (end != command_buffer+10))
+    return 0x80000000 | P65_ERANGE;
+
+  if (channel_io[channel])
+  {
+    long int response_code = channel_io[channel]->seek(offset, whence);
+    return response_code;
+  }
+  else
+  {
+    // invalid or not open channel number
+    long int response_code = 0x80000000 | P65_EBADF;
+    return response_code;
+  }
+}
+
 
 
 void loop()
 {
   char channel = ReadByte();
   char command = ReadByte();
-  
+
   switch (command)
   {
   case 0x19:  // 6502 wants to read a byte
-    if (channel_io[channel])
+    if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
+    {
+      // invalid channel. Write an EOF.
+      WriteByte((char)2);   // eof
+    }
+    else
     {
       int ch = channel_io[channel]->getChar();
       if (ch == -1)
@@ -906,59 +808,11 @@ void loop()
         WriteByte ((char)ch);
       }
     }
-    else
-    {
-      WriteByte((char)2);   // eof
-    }
     break;
   case 0x18:  // 6502 wants to write a byte
     char c = ReadByte();
     if (channel == 0)
     {
-      if (state == ' ')
-      {
-        if (c == 'k')
-        {
-          state = 'k';
-        }
-        else
-        {
-          command_buffer[command_buffer_index++] = c;
-          state = 's'; // read a null-terimnated string
-        }
-      }
-      else if (state == 'k')
-      {
-        // on reflection, maybe this was dumb. And just string encoding
-        // with, say, hex for the int, would be simpler in the long run.
-        // the seek command is a channel number, long int, and char
-        command_buffer[command_buffer_index++] = c;
-        if (command_buffer_index == 6)
-        {
-          delete (channel_io[0]);
-          channel_io[0] = nullptr;
-          command_buffer_index = 0;
-          state = ' ';
-
-          // ready to execute
-          int seek_channel = command_buffer[0];
-          long int offset = *(long int*)(command_buffer + 1);
-          int whence = command_buffer[5];
-          if ((seek_channel > 0) && (seek_channel < 3) && channel_io[seek_channel])
-          {
-            long int response_code = channel_io[seek_channel]->seek(offset, whence);
-            channel_io[0] = new CommandResponse ((char*)&response_code,4);
-          }
-          else
-          {
-            // invalid or not open channel number
-            long int response_code = 0x80000000 | P65_EINVAL;
-            channel_io[0] = new CommandResponse ((char*)&response_code,4);
-          }
-        }
-      }
-      else if (state == 's')
-      {
         // the command is a 0-terminated array of 0-terminated strings.
         if (command_buffer_index < buflen)
           command_buffer[command_buffer_index++] = c;
@@ -971,17 +825,12 @@ void loop()
           command_buffer_index = 0;
           delete (channel_io[0]);
           channel_io[0] = nullptr;
-          state = ' ';
 
           if (length_error)
           {
             char response_code = P65_EINVAL;
             channel_io[0] = new CommandResponse (&response_code,1);
           }
-          // else if (!strncmp (command_buffer, "ls ", 3))
-          // {
-          //   channel_io[0] = new DirectoryReader (command_buffer + 3);
-          // }
           else if (!strcmp (command_buffer, "rm"))
           {
             char response_code = HandleDeleteFile (command_buffer);
@@ -999,7 +848,7 @@ void loop()
           }
           else if (!strcmp (command_buffer, "cp"))
           {
-            char response_code = HandleCpFile (command_buffer);
+            char response_code = HandleCopyFile (command_buffer);
             channel_io[0] = new CommandResponse (&response_code,1);
           }
           else if (!strncmp (command_buffer, "o",1))
@@ -1010,20 +859,25 @@ void loop()
           {
             HandleFileClose (command_buffer); 
           }
+          else if (!strncmp (command_buffer, "k",1))
+          {
+            long response_code = HandleFileSeek (command_buffer); 
+            channel_io[0] = new CommandResponse ((char*)&response_code,4);
+          }
           else
           {
             char response_code = P65_EBADCMD;
             channel_io[0] = new CommandResponse (&response_code,1);
           }
         }
-      }
     }
     else
     {
-      if (channel_io[channel])
+      if ((channel >= MIN_CHANNEL) && (channel <= MAX_CHANNEL) && channel_io[channel])
       {
         channel_io[channel]->putChar(c);
       }
+      // if the channel is invalid, the only thing to do is ignore the input.
     }
     break;
   }    

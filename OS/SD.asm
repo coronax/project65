@@ -36,7 +36,7 @@
 
 .include "OS3.inc"
 .export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
-.import _print_hex, _print_char
+.import _print_hex, _print_char, dev_write_hex
 
 .pc02
 		
@@ -319,6 +319,7 @@ return:		ply						; pull dev channel off of stack
 
 
 .proc SD_SEEK
+			; ex: "k2BBBBBBBB1\0\0" channel = 2, offset = 0xBBBBBBBB, whence = 1
 			pha		; Save whence value for later
 			lda 	DEVICE_CHANNEL
 			tay		; stash device channel in y
@@ -329,9 +330,26 @@ return:		ply						; pull dev channel off of stack
 			jsr		_print_hex
 
 			tya					; The channel we're seeking on.
+			clc
+			adc		#'0'	; convert number to ascii on the cheap
 			jsr		SD_PUTC
 			jsr		_print_hex
 
+			; When we tried to transmit this as binary, it was little endian.
+			; Now, transmitted as text, big endian. So watch for that!
+			lda		ptr2h
+			jsr		dev_write_hex
+			jsr		_print_hex
+			lda		ptr2
+			jsr		dev_write_hex
+			jsr		_print_hex
+			lda		ptr1h
+			jsr		dev_write_hex
+			jsr		_print_hex
+			lda		ptr1
+			jsr		dev_write_hex
+			jsr		_print_hex
+.if 0
 			lda		ptr1
 			jsr		SD_PUTC
 			jsr		_print_hex
@@ -344,10 +362,18 @@ return:		ply						; pull dev channel off of stack
 			lda		ptr2h
 			jsr		SD_PUTC
 			jsr		_print_hex
+.endif
 
 			pla		; recover whence
+			clc
+			adc		#'0'	; convert number to ascii on the cheap
 			jsr		SD_PUTC
 			jsr		_print_hex
+
+			lda		#0			; terminate the command string with \0\0
+			jsr		SD_PUTC
+			lda		#0
+			jsr		SD_PUTC
 
 			; read back a 4-byte value
 			jsr		SD_GETC

@@ -30,7 +30,7 @@
 
 .include "os3.inc"
 
-.export _print_hex, _send_hex, _print_string
+.export _print_hex, _print_string, hexits
 .import dev_putc, _print_char
 
 ; send_char => _print_char, _outputstring => _print_string, print_hex => _print_hex
@@ -73,29 +73,6 @@ doneoutputstring:
 .endproc
 
 
-
-; Prints the value in A to the current device as a 2-character hex 
-; representation. Now preserves A!
-; Uses AX
-.proc _send_hex
-		pha
-		ror
-		ror
-		ror
-		ror
-		and #$0F
-		tax
-		lda hexits,x
-		jsr dev_putc
-		pla
-        pha
-		and #$0F
-		tax
-		lda hexits,x
-		jsr dev_putc
-        pla
-        rts
-.endproc
 
 .rodata
 

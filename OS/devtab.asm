@@ -33,11 +33,11 @@
 .import SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC
 .import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
 .import TTY_IOCTL, TTY_GETC, TTY_OPEN, TTY_CLOSE
-.import _print_string
+.import _print_string, hexits
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
 .export dev_close, init_devices, openfile
 .export dev_seek, dev_tell, dev_get_status
-.export dev_read, dev_writestr
+.export dev_read, dev_writestr, dev_write_hex
 
 
 ;CURRENT_DEVICE    = $0220
@@ -58,7 +58,7 @@
 ;	OPEN	  .word
 ;	CLOSE	  .word
 ;   SEEK      .word
-;   TELL      .word
+;   ; deprecated TELL      .word
 ;.endstruct
 	
 .rodata
@@ -68,11 +68,11 @@
 .align 16
 DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 .byte 0, 0	; Serial Port
-.word SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NULLFN, NULLFN
+.word SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NOSEEK, NULLFN
 
 .align 16
 .byte 0, 0	; SD Card IO Channel
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NULLFN, NULLFN
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, NULLFN
 
 .align 16
 .byte 1, 0	; SD Card Data Channel 1
@@ -84,11 +84,11 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 .align 16
 .byte 0, 0	; TTY Device; attaches on top of serial device
-.word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NULLFN, NULLFN
+.word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NOSEEK, NULLFN
 
 .align 16
 .byte 0, 0	; Empty Device 2
-.word NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NULLFN
+.word NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NOSEEK, NULLFN
 DEVTAB_TEMPLATE_END:
 
 .code
@@ -100,6 +100,19 @@ DEVTAB_TEMPLATE_END:
 			ldx #$FF
 			rts
 .endproc
+
+
+; A generic response for devices that cannot be seeked. 
+; Returns the 4-byte seek response in ptr1 & ptr2
+.proc 		NOSEEK
+			lda #$80		; high bit set to indicate 32-bit error value.
+			sta ptr2h
+			stz ptr2
+			stz ptr1h
+			lda #P65_ESPIPE
+			sta ptr1
+			rts
+.endproc			
 
 
 ; Completely initializes all devices and the DEVTAB structure
@@ -304,7 +317,32 @@ outloop:	lda 	(ptr1),y
 doneoutputstring:
 			rts
 .endproc
-			
+
+
+
+; Writes A to the current device as a 2-character hex string.
+; Now preserves A!
+; Uses AX
+.proc dev_write_hex
+		pha
+		ror
+		ror
+		ror
+		ror
+		and #$0F
+		tax
+		lda hexits,x
+		jsr dev_putc
+		pla
+        pha
+		and #$0F
+		tax
+		lda hexits,x
+		jsr dev_putc
+        pla
+        rts
+.endproc		
+
 
 
 ; Read bytes from the current device. 
