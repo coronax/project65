@@ -151,23 +151,38 @@ wait:
 		lda		#$19		; "gimme a byte" command
 		WriteByte
 		ReadByte			; status 0 = good, 1 = not yet, 2 = eof
+							; esc-FF = EOF, esc-0 = none available, esc-esc = escape, rest are chars
+		cmp #$1b	;esc
+		bne return_byte
+		ReadByte			; read 2nd byte of escape sequence
+		cmp #$ff
+		beq eof
+		cmp #$00
+		beq nochar
 
-		cmp		#1			; test for no character available
-		beq		nochar
-		cmp 	#2			; test for eof
-		beq		eof
-
-		ReadByte			; read actual character
-		sec					; read a byte, so set carry
-		ldx		#$00
+return_byte:
+		sec 	; set carry to indicate a byte returned
+		ldx #$00
 		rts
+		
+
+;		cmp		#1			; test for no character available
+;		beq		nochar
+;		cmp 	#2			; test for eof
+;		beq		eof
+
+;		ReadByte			; read actual character
+;		sec					; read a byte, so set carry
+;		ldx		#$00
+;		rts
 nochar:
 		clc
 		rts					; no char read, so clear carry & return
 eof:
 		sec					; I guess eof counts as a token for this purpose, so set carry
-		lda 	#$ff
-		ldx		#$FF		; carry set & x=$FF equals EOF.
+		tax					; There's already an FF in A.
+		;lda 	#$ff
+		;ldx		#$FF		; carry set & x=$FF equals EOF.
 		rts
 .endproc
 

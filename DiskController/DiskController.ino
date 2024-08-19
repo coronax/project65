@@ -793,18 +793,27 @@ void loop()
     if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
     {
       // invalid channel. Write an EOF.
-      WriteByte((char)2);   // eof
+      //WriteByte((char)2);   // eof
+      WriteByte((char)0x1b);
+      WriteByte((char)0xff);
     }
     else
     {
       int ch = channel_io[channel]->getChar();
       if (ch == -1)
       {
-        WriteByte((char)2);   // eof
+        //WriteByte((char)2);   // eof
+        WriteByte((char)0x1b);
+        WriteByte((char)0xff);
+      }
+      else if (ch == 0x1b)      // escape character
+      {
+        WriteByte((char)0x1b);
+        WriteByte((char)0x1b); // send escaped escape
       }
       else
       {
-        WriteByte ((char)0);
+        //WriteByte ((char)0);
         WriteByte ((char)ch);
       }
     }
