@@ -45,12 +45,14 @@
         sta argv1L          ; get to them.
         sta argv2L
         sta argv3L
+        sta argv4L
         lda #>buffer
         sta ptr1h           ; We're taking advantage of the fact that buffer
         sta argv0H          ; fits in a single page, so the high byte of any
         sta argv1H          ; argv is the same as the high byte of buffer's
         sta argv2H          ; address.
         sta argv3H
+        sta argv4H
         lda #<argv0L
         sta ptr2
         lda #>argv0L
@@ -112,10 +114,25 @@ endoftoken:
         cmp #4
         bne skipwhitespace
 
-
 done_tokenize:
+        ; Need to zero-out the unused elements
+        lda ptr2
+        cmp #<argv_end
+        beq done
+        lda #0
+        tay
+        sta (ptr2),y
+        iny
+        sta (ptr2),y
+        inc ptr2
+        inc ptr2
+        bra done_tokenize
+
+done:
         rts
 .endproc
+
+
 
 .if 0
 testmsg1: .byte "Finished parsing command line", CR, LF, 0

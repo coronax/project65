@@ -32,7 +32,8 @@
 .include "os3.inc"
 .import set_filename, setdevice, dev_writestr, dev_getc, dev_putc
 .import mkdir_command, rmdir_command, rm_command, cp_command, mv_command
-.export mkdir, rmdir, rm, cp, mv
+.import dev_open, dev_close, set_filemode, _print_char
+.export mkdir, rmdir, rm, cp, mv, load_program
 
 
 ; Create a new directory 
@@ -136,5 +137,80 @@
    		lda #0              ; and a marker for end of array-of-strings
 		jsr dev_putc		
         jsr dev_getc        ; read response code
+        rts
+.endproc
+
+
+
+; Load a program into memory
+; Program name in AX
+; returns error code in AX
+.proc load_program
+        jsr set_filename
+	; setup
+	lda #O_RDONLY
+	jsr set_filemode
+		
+	lda #2
+	jsr setdevice
+	jsr	dev_open
+		
+	; check return code which is in A - we want a regular file (1)
+	cmp #0
+	bmi error
+	beq open_success
+	cmp #1
+	beq open_success
+		
+	lda #P65_EISDIR	; and fall thru to error handler
+
+	; an error happened.  Print the command response & return to command line
+error:
+        ldx #0
+        rts
+		
+open_success:
+	; read file content on device 2
+	lda #2
+	jsr	setdevice
+		
+get1:	
+        jsr 	dev_getc
+	bcc	get1
+	sta	program_address_low
+	sta	ptr1
+get2:	
+        jsr	dev_getc
+	bcc 	get2
+	sta	program_address_high
+	sta	ptr1h
+		
+	ldy	#0
+loop:	jsr	dev_getc
+	bcc	loop
+	cpx	#$FF
+	beq 	done
+	sta	(ptr1),y
+
+	iny
+	bne	loop
+	inc	ptr1h
+	lda	#'.'
+	jsr	_print_char
+	bra	loop
+done:
+	jsr dev_close
+
+	; figure out end address just so i can print it correctly
+	clc
+	tya
+	adc	ptr1
+	sta	program_end_low
+	lda	ptr1h
+	adc 	#0
+	sta	program_end_high
+
+        lda #0  ; Set return code
+        tax
         rts
 .endproc

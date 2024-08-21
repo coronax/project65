@@ -84,15 +84,12 @@ tod_seconds3	= $0208
 tod_seconds4	= $0209 ; tod seconds MSB
 tod_seconds100  = $020a ; hundredths of seconds; effectively a count of clock interrupts
 
-		; countdown # of interrupts per second.
-tod_int_counter = $020b ; deprecated?
-
 spi_readbuffer	= $020c	; Used by spibyte
 spi_writebuffer	= $020d	; Used by spibyte
 
 program_address_low=$20f		; pointers to begin/end of current loaded 
 program_address_high=$210		
-program_end_low=$211			; *Is end the last byte or one past?
+program_end_low=$211			; Address of the byte following the last program byte.
 program_end_high=$212
 
 ; monitor variables
@@ -100,8 +97,8 @@ breakpoint_low=$213
 breakpoint_high	= $214
 breakpoint_value  = $215
 
-SCRATCH = $216			; scratch for table jumps. 2 bytes.
-SCRATCHH = $217
+;SCRATCH = $216			; scratch for table jumps. 2 bytes.
+;SCRATCHH = $217
 
 ; devtab management
 CURRENT_DEVICE    = $0220	; devtab index of current device
@@ -123,7 +120,10 @@ argv2L          = $0285
 argv2H          = $0286
 argv3L          = $0287
 argv3H          = $0288
-program_ret     = $0289		; return code of called program
+argv4L          = $0289		; Final element of argv should be NULL.
+argv4H          = $028a
+argv_end        = $028b
+program_ret     = $028b		; return code of called program
 DEVTAB          = $0290   	; This is the devtab we actually use. 96 bytes, up to $02f0
 NEXT_UNUSED     = $02F0		; One past end of DEVTAB
 
@@ -139,10 +139,8 @@ wbuffer 	= $0380		; write buffer. 128 bytes
 ; Page Four usage
 ;=============================================================================
 
-;wr_ttybuffer = $0400
-;rd_ttybuffer = $0401
-;cl_ttybuffer = $0402
-ttybuffer = $0400 		; TTY input buffer. Temporary. 128 bytes so we can resuse some serial port stuff?
+ttybuffer = $0400 		; TTY input buffer. Temporary. 128 bytes so we can reuse some serial port stuff?
+scratchbuffer = $0480   ; Scratch buffer for OS commands. Used for handling filenames, etc.
 
 ;=============================================================================
 ; Page Zero usage
@@ -155,16 +153,16 @@ tmp2 = $00dc
 tmp3 = $00dd
 tmp4 = $00de
 
+; zero-page elements of TTY driver
 wr_ttybuffer = $00df
 rd_ttybuffer = $00e0
 cl_ttybuffer = $00e1
 
-
+; zero-page elements of IO/serial driver
 wr_rbuffer 	= $00e2		; Max3100 read buffer read index
 rd_rbuffer 	= $00e3
 wr_wbuffer 	= $00e4
 rd_wbuffer 	= $00e5		; Max3100 write buffer write index
-
 statusbyte		= $e6	; Used by Max3100 code & other SPI drivers
 max3100_rts_status = $e7
 max3100_sending = $e8	; Used during Max3100_SendRecv
@@ -230,7 +228,7 @@ P65_EBADF    =   $80 | 16
 P65_ENOEXEC  =   $80 | 17
 P65_EUNKNOWN =   $80 | 18
 
-; OS-specific codes
+; OS-specific error codes
 P65_ESYNTAX  =   $80 | 19
 P65_ENOTDIR  =   $80 | 20
 P65_EISDIR   =   $80 | 21

@@ -35,7 +35,7 @@
 .import dev_getc, dev_writestr, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
 .import dev_read
 .import TokenizeCommandLine, test_tokenizer
-.import mkdir, rmdir, rm, cp, mv
+.import mkdir, rmdir, rm, cp, mv, load_program
 
 ; TODO
 ;
@@ -138,8 +138,8 @@ WARMBOOT:
 		stz tod_seconds+2
 		stz tod_seconds+3
 		stz tod_seconds100
-		lda #$64
-		sta tod_int_counter
+		;lda #$64
+		;sta tod_int_counter
 
 		; initialize VIA Timer 1 to generate 100 Hz timer. At 4 MHz
 		; that should require a 40000 ($9C40)clock timer.
@@ -224,6 +224,7 @@ skip:
 .endmacro
 
 		DispatchCommandLine g_command, process_g
+		DispatchCommandLine run_command, process_run
 		DispatchCommandLine x_command, process_x
 		DispatchCommandLine b_command, process_b
 		DispatchCommandLine m_command, process_m
@@ -238,15 +239,70 @@ skip:
 		DispatchCommandLine save_command, ProcessSaveCommand
 		DispatchCommandLine uptime_command, UptimeCommand
 
+		; OK, well maybe it's a program to be run. We can try running from current directory or from /c
+		lda argv0L
+		ldx argv0H
+		jsr load_program
+		cmp #0
+		bne error
+		jmp execute_program
+error:
+		jsr perror
+		jmp _commandline
+
 		; Print a message for unrecognized command
-        printstring string1
-        printstring buffer
-        printstring string2
+;        printstring string1
+;        printstring buffer
+;        printstring string2
 
-        jmp _commandline	; and loop back to the start of the processor
-
-
+;        jmp _commandline	; and loop back to the start of the processor
 .endproc
+
+.proc execute_program
+        printstring loadmsg
+        lda program_address_high
+        jsr _print_hex
+        lda program_address_low
+        jsr _print_hex
+		printstring loadmsg2
+        lda program_end_high
+        jsr _print_hex
+        lda program_end_low
+        jsr _print_hex
+        printstring crlf
+
+		; at this point we should wait for the send buffer to
+		; empty before starting execution of the program. This
+		; is especially important for something like the insitu
+		; loader, because it's going to blow up the IO system.
+		
+		
+		; now we have to do another faux jsr into our program
+		; push a fake return address onto the stack and then jmp
+		lda #>program_return
+		pha
+		lda #<program_return
+		pha
+		jmp	(program_address_low)
+
+program_return:
+		nop
+		jmp _commandline
+		
+loadmsg:   	.asciiz "Program located at $"
+loadmsg2:	.asciiz " to $"
+error:
+		jsr perror
+		jmp _commandline
+
+		; Print a message for unrecognized command
+;        printstring string1
+;        printstring buffer
+;        printstring string2
+
+;        jmp _commandline	; and loop back to the start of the processor
+.endproc
+
 
 .rodata
 ; command names. A few of these are shared with filesystem.
@@ -264,29 +320,9 @@ load_command:	.asciiz "load"
 save_command:	.asciiz "save"
 uptime_command:	.asciiz "uptime"
 x_command:		.asciiz "x"
+run_command:    .asciiz "r"
 .code
 
-
-.if 0
-; Returns 1 in A if the string in AX is a prefix of the command buffer
-.proc IsPrefix
-		sta ptr1
-		stx ptr1h
-		ldy #0
-loop:	lda (ptr1),y
-		beq done_true	; end of prefix string, return true
-		cmp buffer,y
-		bne done_false	; didn't match buffer, return false
-		iny
-		bra loop
-done_true:
-		lda #1
-		rts
-done_false:
-		lda #0
-		rts
-.endproc 
-.endif
 
 
 ; Returns 1 in A if the string in AX equals the string in ptr1
@@ -602,74 +638,6 @@ cleanup:
 .endproc
 
 
-.if 0
-; handler for commands mkdir, rmdir, rm
-.proc ProcessFileCommand
-		lda #1
-		jsr setdevice
-
-		; we need to write each argument, separated by spaces
-		lda argc
-		pha				; store counter on stack
-		lda #<argv0L
-		sta ptr2
-		lda #>argv0L
-		sta ptr2h		; initialize pointer to argument
-
-output_arg:
-		ldy #0			; ptr2 points to one of the argv pointers.
-		lda (ptr2),y	; Dereference and save pointer to actual string
-		sta ptr1		; in ptr1.
-		iny
-		lda (ptr2),y
-		sta ptr1h
-		dey				; and set Y back to 0.
-output_char:
-		lda (ptr1),y
-		beq next_arg
-		jsr dev_putc
-		iny
-		bra output_char
-next_arg:
-		pla				; get counter
-;		cmp argc		; and compare to argc
-		dec
-		beq doneoutputargs
-;		dec
-		pha				; decrement and save counter
-		lda #' '
-		jsr dev_putc		; put a space between arguments
-		inc ptr2
-		inc ptr2		; point to next argument
-		bra output_arg
-doneoutputargs:
-		lda #0
-		jsr dev_putc		; and finally an end-of-string
-		lda #0
-		jsr dev_putc		; and a marker for end of array-of-strings
-
-; read result.  This will be a P65_* errno value
-		jsr dev_getc		; read return code
-		;cmp #0
-		;beq cleanup
-
-		; Let's just always call perror and get an "OK" if things go well :)
-		jsr perror; print the error message
-		;PHA
-		;printstring fileoperror
-		;PLA
-		;jsr print_hex
-		;printstring crlf
-cleanup:
-		jmp _commandline
-;ret_ok:
-;		; success; print output stream, if any.
-;		jsr PrintStream
-;		printstring crlf
-;		jmp _commandline
-.endproc
-.endif
-
 
 .proc ProcessMoreCommand
 		; setup
@@ -773,12 +741,6 @@ loop:	jsr		dev_getc
 		cpx		#$FF
 		beq 	done
 		sta		(ptr1),y
-
-		;jsr		print_hex
-;		ldx #$ff ; ok, our problem is a timing problem, because this delay seems to fix it.
-;dly:	nop
-;		dex
-;		bne dly
 
 		iny
 		bne		loop
@@ -1156,6 +1118,60 @@ cleanup:
 		jmp _commandline
 
 return_msg:	.asciiz "Program returned "
+.endproc
+
+
+
+;=============================================================================
+; process_run
+;=============================================================================
+; Example: r [arg1] [arg2] [arg3]
+; Handler for the r command, which executes the currently loaded program
+; The code emulates an indirect jsr, so if the called code returns with an
+; rts, control will return to the command parser.
+; Effectively this is like g, without specifying memory location
+;=============================================================================
+.proc process_run
+		lda argc
+;		cmp #1
+;		bne read_address
+;use_default_address:
+		lda program_address_low		; No arguments; use default program
+		sta ptr2					; location.
+		lda program_address_high
+		sta ptr2h
+;		bra run_code
+;read_address:						; Read program start address from the 
+;		lda argv1L					; command line (argv[1]).
+;		ldx argv1H
+;        jsr parse_address
+;        sta ptr2
+;        stx ptr2h
+;run_code:		
+		; Fake an indirect jsr by pushing return address to stack manually 
+		; and then doing an indirect jmp.
+		lda #>program_return
+		pha
+		lda #<program_return
+		pha
+		stz program_ret		; Initialize program return value.
+		jmp	(ptr2)
+program_return:
+		nop					; The jsr return will skip over this instruction.
+		;printstring return_msg
+		;lda program_ret
+		;jsr _print_hex
+		;printstring crlf
+		; Jumping to soft reset at the end of the program is the safest option
+		; because it guarantees we'll be in a known state regardless of how
+		; messily the program ended. But any output still in the write buffer
+		; will be cut off.
+		;jmp SOFT_RESET 
+		; So for now we'll try the less safe option of just returning into the
+		; command line routine.
+;cleanup:
+		jmp _commandline
+;return_msg:	.asciiz "Program returned "
 .endproc
 
 
