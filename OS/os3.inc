@@ -78,14 +78,14 @@ O_EXCL          = $80
 
 ; Real-time clock
 		; # of seconds since started (32-bit, since that's what c lib wants)
-tod_seconds 	= $0206 ; tod seconds lsb
+tod_seconds 	= $0206 ; tod seconds LSB
 tod_seconds2	= $0207
 tod_seconds3	= $0208
 tod_seconds4	= $0209 ; tod seconds MSB
 tod_seconds100  = $020a ; hundredths of seconds; effectively a count of clock interrupts
 
-spi_readbuffer	= $020c	; Used by spibyte
-spi_writebuffer	= $020d	; Used by spibyte
+;spi_readbuffer	= $020c	; Used by spibyte
+;spi_writebuffer	= $020d	; Used by spibyte
 
 program_address_low=$20f		; pointers to begin/end of current loaded 
 program_address_high=$210		
@@ -148,25 +148,26 @@ scratchbuffer = $0480   ; Scratch buffer for OS commands. Used for handling file
 
 ; 000A to 007a is allocated for cc65 (or other applications)
 
+; zero-page elements of IO/serial driver
+wr_rbuffer 		= $0080		; Max3100 read buffer write index
+rd_rbuffer 		= $0081
+wr_wbuffer 		= $0082
+rd_wbuffer 		= $0083		; Max3100 write buffer read index
+spi_readbuffer	= $0084		; Used by spibyte
+spi_writebuffer	= $0085		; Used by spibyte
+statusbyte		= $0086		; Used by Max3100 code & other SPI drivers
+max3100_rts_status = $0087
+max3100_sending = $0088		; Used during Max3100_SendRecv
+
 tmp1 = $00db
 tmp2 = $00dc
 tmp3 = $00dd
 tmp4 = $00de
 
 ; zero-page elements of TTY driver
-wr_ttybuffer = $00df
-rd_ttybuffer = $00e0
-cl_ttybuffer = $00e1
-
-; zero-page elements of IO/serial driver
-wr_rbuffer 	= $00e2		; Max3100 read buffer read index
-rd_rbuffer 	= $00e3
-wr_wbuffer 	= $00e4
-rd_wbuffer 	= $00e5		; Max3100 write buffer write index
-statusbyte		= $e6	; Used by Max3100 code & other SPI drivers
-max3100_rts_status = $e7
-max3100_sending = $e8	; Used during Max3100_SendRecv
-; we also have a kludge below using $EE
+wr_ttybuffer = $00df		; ttybuffer write cursor
+rd_ttybuffer = $00e0		; ttybuffer read cursor
+cl_ttybuffer = $00e1		; ttybuffer start of current line
 
 ptr1	= $e9
 ptr1h	= $ea

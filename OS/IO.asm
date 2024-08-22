@@ -177,8 +177,6 @@ read_char:
 		READBUFFER rbuffer
 		cli		; re-enable interrupts
 		plx
-		sta $ee	; grab a temp storagespot...
-		lda $ee
 ;		cmp #0  ; need to fix up the status register flags N & Z
 ;		        ; to reflect the byte we're returning.
 		sec		; set carry to indicate a character was read
@@ -462,13 +460,12 @@ test_send:
 .proc spibyte
 		sta spi_writebuffer
 .repeat 8
-		.scope
+.scope
 		lda #%01111000		; base value with chip select
 		rol spi_writebuffer
 		bcc write_zero_bit
 		ora #%00000100		; write a one bit to the output.
 write_zero_bit:
-		.endscope
 		
 ;		lda #0
 ;		rol spi_writebuffer
@@ -487,7 +484,9 @@ write_zero_bit:
 		rol spi_readbuffer	; Shift carry into readbuffer
 
 		dec VIA_DATAB    	; set clock low
+.endscope
 .endrepeat
+
 		lda spi_readbuffer	; result goes in A
 		rts
 .endproc
