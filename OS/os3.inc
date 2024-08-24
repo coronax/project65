@@ -146,33 +146,39 @@ scratchbuffer = $0480   ; Scratch buffer for OS commands. Used for handling file
 ; Page Zero usage
 ;=============================================================================
 
-; 000A to 007a is allocated for cc65 (or other applications)
-
-; zero-page elements of IO/serial driver
-wr_rbuffer 		= $0080		; Max3100 read buffer write index
-rd_rbuffer 		= $0081
-wr_wbuffer 		= $0082
-rd_wbuffer 		= $0083		; Max3100 write buffer read index
-spi_readbuffer	= $0084		; Used by spibyte
-spi_writebuffer	= $0085		; Used by spibyte
-statusbyte		= $0086		; Used by Max3100 code & other SPI drivers
-max3100_rts_status = $0087
-max3100_sending = $0088		; Used during Max3100_SendRecv
-
-tmp1 = $00db
-tmp2 = $00dc
-tmp3 = $00dd
-tmp4 = $00de
+; My main constraint with zero page usage is that I want to maintain 
+; compatibility with EHBasic, which uses it profigately. I'm currently using
+; version 2.22 which uses $00-$13, $5b-$DF (or maybe $E1?) and $EF-$F0. 
+; Yeesh!
+; We're going to mainly use the space between $14 and $5a inclusive.
+; And cc65 can use the block at $5b for its zero-page stuff.
 
 ; zero-page elements of TTY driver
-wr_ttybuffer = $00df		; ttybuffer write cursor
-rd_ttybuffer = $00e0		; ttybuffer read cursor
-cl_ttybuffer = $00e1		; ttybuffer start of current line
+wr_ttybuffer = $0020		; ttybuffer write cursor
+rd_ttybuffer = $0021		; ttybuffer read cursor
+cl_ttybuffer = $0022		; ttybuffer start of current line
 
-ptr1	= $e9
-ptr1h	= $ea
-ptr2	= $eb
-ptr2h	= $ec
+tmp1 = $0023
+tmp2 = $0024
+tmp3 = $0025
+tmp4 = $0026
+
+; zero-page elements of IO/serial driver
+wr_rbuffer 		= $0027		; Max3100 read buffer write index
+rd_rbuffer 		= $0028
+wr_wbuffer 		= $0029
+rd_wbuffer 		= $002a		; Max3100 write buffer read index
+spi_readbuffer	= $002b		; Used by spibyte
+spi_writebuffer	= $002c		; Used by spibyte
+statusbyte		= $002d		; Used by Max3100 code & other SPI drivers
+max3100_rts_status = $002e
+max3100_sending = $002f		; Used during Max3100_SendRecv
+
+ptr1	= $30
+ptr1h	= $31
+ptr2	= $32
+ptr2h	= $33
+
 
 ;=============================================================================
 ; Macros
