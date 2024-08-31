@@ -64,7 +64,7 @@
 .endproc
 
 
-; Remove a directory, which must be empty
+; Remove a file.
 ; AX points to a string with a pathname relative to /.
 ; Returns: P65_EOK or error code in A
 ; Modifies AXY, ptr1
@@ -86,8 +86,8 @@
         lda DEVICE_FILENAME
         ldx DEVICE_FILENAME+1
         jsr dev_writestr
-   		lda #0
-		jsr dev_putc		; and a marker for end of array-of-strings
+   	lda #0
+        jsr dev_putc		; and a marker for end of array-of-strings
         jsr dev_getc        ; read response code
         rts
 .endproc
