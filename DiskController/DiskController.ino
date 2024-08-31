@@ -219,7 +219,7 @@ const int buflen = 64;
 char command_buffer[buflen];
 int command_buffer_index = 0;
 char command_output[buflen];
-//int command_output_index = 0;
+bool command_buffer_overrun = false;
 
 
 class FileIO
@@ -672,24 +672,25 @@ char HandleCopyFile (char* command_buffer)
     return P65_EIO;
   }
 
-  // If dst_filename is a folder, we need to insert into that folder. sigh.
+  // If dst_filename exists & is a folder, abort.
   if (SD.exists(dst_filename) && (dst = SD.open(dst_filename, FILE_READ)))
   {
     if (dst.isDirectory())
     {
-      // make up a new destination name and stick it in buffer.
       dst.close();
-      if (strlen(src_filename) + strlen(dst_filename) + 2 > buflen)
-      {
-        return P65_EINVAL; // name too long...
-      }
-      sprintf(buffer, "%s/%s",dst_filename, src_filename);
-      dst_filename = buffer;
+      return P65_EISDIR;
+//      // make up a new destination name and stick it in buffer.
+//      dst.close();
+//      if (strlen(src_filename) + strlen(dst_filename) + 2 > buflen)
+//      {
+//        return P65_EINVAL; // name too long...
+//      }
+//      sprintf(buffer, "%s/%s",dst_filename, src_filename);
+//      dst_filename = buffer;
     }
     else
     {
       dst.close();
-      //SD.remove(dst_filename);
     }
   }
 
@@ -701,7 +702,7 @@ char HandleCopyFile (char* command_buffer)
   if (!dst)
   {
     src.close();
-    return 0x83;//P65_EIO;
+    return P65_EIO;
   }
 
   // OK, we should have both src and dst open. Start copying?
@@ -790,12 +791,29 @@ void loop()
   switch (command)
   {
   case 0x19:  // 6502 wants to read a byte
+    if ((channel == 0) && command_buffer_overrun)
+    {
+      // On the first read after a command buffer overrun, we reset the 
+      // command buffer.
+      command_buffer_overrun = false;
+      command_buffer_index = 0;
+      channel_io[0] = nullptr;
+    }
+
     if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
     {
-      // invalid channel. Write an EOF.
-      //WriteByte((char)2);   // eof
-      WriteByte((char)0x1b);
-      WriteByte((char)0xff);
+      if (channel == 0)
+      {
+        // command channel. Write an EINVAL because something has clearly gone wrong 
+        // with understanding a message from the computer. Probably a buffer overrun.
+        WriteByte((char)P65_EINVAL);
+      }
+      else
+      {
+        // invalid channel. Write an EOF.
+        WriteByte((char)0x1b);
+        WriteByte((char)0xff);
+      }
     }
     else
     {
@@ -825,6 +843,8 @@ void loop()
         // the command is a 0-terminated array of 0-terminated strings.
         if (command_buffer_index < buflen)
           command_buffer[command_buffer_index++] = c;
+        else
+          command_buffer_overrun = true;
         if ((c == 0) && (command_buffer_index > 1) && (command_buffer[command_buffer_index-2] == 0))
         {
           bool length_error = (command_buffer_index >= buflen);
