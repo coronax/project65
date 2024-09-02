@@ -2,6 +2,8 @@
 *~
 *#*#
 *.lst
+*.o
+*.prg
 ExpBlinkenlights/blink
 Insitu/insitu
 OS/os3.prg
