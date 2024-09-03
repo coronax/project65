@@ -36,7 +36,7 @@
 .import _print_string, hexits
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
 .export dev_close, init_devices, openfile
-.export dev_seek, dev_tell, dev_get_status
+.export dev_seek, dev_get_status
 .export dev_read, dev_writestr, dev_write_hex
 
 
@@ -58,7 +58,7 @@
 ;	OPEN	  .word
 ;	CLOSE	  .word
 ;   SEEK      .word
-;   ; deprecated TELL      .word
+;   READ      .word
 ;.endstruct
 	
 .rodata
@@ -68,23 +68,23 @@
 .align 16
 DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 .byte 0, 0	; Serial Port
-.word SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NOSEEK, NULLFN
+.word SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NOSEEK, DEFAULT_READ
 
 .align 16
 .byte 0, 0	; SD Card IO Channel
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, NULLFN
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, DEFAULT_READ
 
 .align 16
 .byte 1, 0	; SD Card Data Channel 1
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, NULLFN
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, DEFAULT_READ
 
 .align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, NULLFN
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, DEFAULT_READ
 
 .align 16
 .byte 0, 0	; TTY Device; attaches on top of serial device
-.word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NOSEEK, NULLFN
+.word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NOSEEK, DEFAULT_READ
 
 .align 16
 .byte 0, 0	; Empty Device 2
@@ -227,9 +227,16 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 .endproc
 
 
-.proc dev_tell
+; Read bytes from the current device. 
+; ptr1 points to a buffer. AX contains # of bytes to be read.
+; Returns number of bytes read in AX. 0 for end of file,
+; -1 for error.
+; Uses AXY, tmp1, tmp2, tmp3, ptr1
+.proc dev_read
+			phx	; note that actual implementations have to read # bytes from stack
+			pha
 			ldx DEVICE_OFFSET
-			jmp (DEVTAB + DEVENTRY::TELL,X)
+			jmp (DEVTAB + DEVENTRY::READ,X)
 .endproc
 
 
@@ -346,11 +353,13 @@ doneoutputstring:
 
 
 ; Read bytes from the current device. 
-; ptr1 points to a buffer. AX contains # of bytes to be read.
+; top of stack points to a buffer. AX contains # of bytes to be read.
 ; Returns number of bytes read in AX. 0 for end of file,
 ; -1 for error.
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
-.proc dev_read
+.proc DEFAULT_READ
+		pla				; Recover # of bytes to read from stack
+		plx
         cmp #0
         bne nonzero
         cpx #0

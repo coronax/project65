@@ -53,7 +53,7 @@ O_EXCL          = $80
 	OPEN	  .word
 	CLOSE	  .word
 	SEEK	  .word
-	TELL	  .word
+	READ	  .word
 .endstruct
 
 ; Control block for the TTY device. The tricky part is that it needs to be 
