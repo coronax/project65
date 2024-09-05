@@ -173,35 +173,30 @@ WARMBOOT:
 		cli						; Some of my programs disable interrupts, so just in case we
 								; get returned to from one of those, let's re-enable.
 
+		lda #4					; Open the tty device
+		jsr setdevice
+		jsr dev_open			; this should give us the defaults we want.
+
         printstring prompt
-        ldx #0
+        ldy #0
 loop:
-        jsr _read_char
+		jsr dev_getc
         bcc loop
-        jsr _print_char           ; echo
-        sta buffer,x
+        sta buffer,y
         cmp #13                 ; carriage return
         beq outputsection
         cmp #10                 ; line feed
         beq outputsection
-		cmp #08					; backspace. if we're not at the
-		bne @skipbackspace		; start of buffer, decrement x
-		cpx #0
-		beq @skipbackspace
-		dex
-@skipbackspace:
-        inx
-        ; wraparound x
-        txa
-        and #$3F				; max 64-character line
-        tax
-        jmp loop
+
+        iny						; increment buffer index and wrap around
+        tya						; at 64-character max length
+        and #$3F				; Rollover might be the wront thing to do, but
+        tay                     ; tty device will enforce a line length anyway.
+        bra loop
 
 outputsection:
         lda #0
-        sta buffer,x			; add terminating 0
-
-		printstring crlf
+        sta buffer,y			; add terminating 0
 
 		jsr TokenizeCommandLine
 
@@ -248,15 +243,10 @@ skip:
 		jmp execute_program
 error:
 		jsr perror
-		jmp _commandline
+		jmp _commandline	; Go back to the start of command processor.
 
-		; Print a message for unrecognized command
-;        printstring string1
-;        printstring buffer
-;        printstring string2
-
-;        jmp _commandline	; and loop back to the start of the processor
 .endproc
+
 
 .proc execute_program
         printstring loadmsg
@@ -295,12 +285,6 @@ error:
 		jsr perror
 		jmp _commandline
 
-		; Print a message for unrecognized command
-;        printstring string1
-;        printstring buffer
-;        printstring string2
-
-;        jmp _commandline	; and loop back to the start of the processor
 .endproc
 
 
