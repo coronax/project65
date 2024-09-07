@@ -30,8 +30,8 @@
 .import _commandline, _print_string, _print_hex, _read_char, _print_char
 .import setdevice, dev_open, dev_close, dev_putc, dev_getc
 .import set_filename, set_filemode, openfile
-.import dev_ioctl, dev_seek, dev_tell, dev_get_status
-.import mkdir, rmdir, rm, cp, mv
+.import dev_ioctl, dev_seek, dev_read, dev_get_status
+.import mkdir, rmdir, rm, cp, mv, stat
 .import RESET
 ;.export PutChar, GetChar, SET_FILENAME, SET_FILEMODE, DEV_OPEN, DEV_CLOSE, DEV_PUTC, DEV_GETC
 ;.export DEV_SEEK, DEV_GET_STATUS
@@ -39,15 +39,16 @@
 
 
 .segment "kernal_table"
-FS_MKDIR:       jmp mkdir               ; FFBB
-FS_RMDIR:       jmp rmdir               ; FFBE
-FS_RM:          jmp rm                  ; FFC1
-FS_CP:          jmp cp                  ; FFC4
-FS_MV:          jmp mv                  ; FFC7
+FS_STAT:        jmp stat                ; FFB5
+FS_MKDIR:       jmp mkdir               ; FFB8
+FS_RMDIR:       jmp rmdir               ; FFBB
+FS_RM:          jmp rm                  ; FFBE
+FS_CP:          jmp cp                  ; FFC1
+FS_MV:          jmp mv                  ; FFC4
 
-DEV_IOCTL:      jmp dev_ioctl           ; FFCA
-DEV_SEEK:       jmp dev_seek            ; FFCD
-;DEV_TELL:       jmp dev_tell            ; FFCB - deprecate?
+DEV_IOCTL:      jmp dev_ioctl           ; FFC7
+DEV_SEEK:       jmp dev_seek            ; FFCA
+DEV_READ:       jmp dev_read            ; FFCD
 DEV_GET_STATUS: jmp dev_get_status      ; FFD0
 FILE_OPEN:      jmp openfile            ; FFD3
 SET_FILENAME:   jmp set_filename        ; FFD6

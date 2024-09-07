@@ -33,7 +33,7 @@
 .import set_filename, setdevice, dev_writestr, dev_getc, dev_putc, dev_read
 .import mkdir_command, rmdir_command, rm_command, cp_command, mv_command
 .import dev_open, dev_close, set_filemode, _print_char, _print_hex
-.export mkdir, rmdir, rm, cp, mv, load_program
+.export mkdir, rmdir, rm, cp, mv, load_program, stat
 
 
 ; Create a new directory 
@@ -125,7 +125,7 @@
 ; helper for cp & mv. expects operator string in AX,
 ; src argument in DEVICE_FILENAME, dest argument in ptr2
 ; and current device is SD command channel.
-; Modifiees AXY, ptr1, ptr2
+; Modifies AXY, ptr1, ptr2
 .proc dos_doublearg
         jsr dev_writestr    ; Write the command string which is in AX
         lda DEVICE_FILENAME
@@ -134,10 +134,62 @@
         lda ptr2
         ldx ptr2h
         jsr dev_writestr    ; Write dest name
-   		lda #0              ; and a marker for end of array-of-strings
-		jsr dev_putc		
+   	lda #0              ; and a marker for end of array-of-strings
+	jsr dev_putc		
         jsr dev_getc        ; read response code
         rts
+.endproc
+
+
+
+; Performs a stat operation on a file. The returned data replicates the 
+; cc65 stat struct layout.
+; Filename in AX. Memory buffer in ptr1
+; returns a P:65 error code in AX
+; Uses AXY, ptr1, ptr2
+.proc stat
+        jsr set_filename
+        lda #1
+        jsr setdevice
+        lda ptr1
+        sta ptr2
+        lda ptr1h
+        sta ptr2h
+        lda #<stat_command
+        ldx #>stat_command
+        jsr dev_writestr        ; write command
+        lda DEVICE_FILENAME
+        ldx DEVICE_FILENAME+1
+        jsr dev_writestr        ; write filename
+        lda #0
+        jsr dev_putc            ; write end-of-array marker
+read_status:
+        jsr dev_getc            ; read response code
+        bcc read_status
+        cmp #0
+        bne done
+        lda ptr2                ; Copy buffer ptr back to ptr1
+        sta ptr1
+        lda ptr2h
+        sta ptr1h
+        lda #43                 ; is the size actually 43 bytes? padding?
+        ldx #0
+        jsr dev_read            ; read stat struct
+        cmp #43
+        bne read_error
+        lda #1                  ; Disk device number
+        ldy #0
+        sta (ptr2),y            ; save device number to struct stat
+        lda #P65_EOK            ; set return code
+        ldx #0
+done:
+        rts
+read_error:
+        lda #P65_EAGAIN
+        ldx #0
+        rts
+stat_command:
+        .asciiz "stat"
 .endproc
 
 

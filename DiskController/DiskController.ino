@@ -215,10 +215,10 @@ void WriteByte (char data)
  
 
 
-const int buflen = 64;
+const int buflen = 96;
 char command_buffer[buflen];
 int command_buffer_index = 0;
-char command_output[buflen];
+//char command_output[buflen];
 bool command_buffer_overrun = false;
 
 
@@ -384,17 +384,18 @@ class CommandResponse: public FileIO
     read_position = 0;
     write_position = len;
   }
-  
-  void Append (const char* output, int len)
+
+  CommandResponse (char code)
   {
-    memcpy (buffer+write_position, output, len);
-    write_position += len;
+    buffer[0] = code;
+    read_position = 0;
+    write_position = 1;
   }
-  
+
   virtual ~CommandResponse ()
   { ; }
   
-  virtual int getChar()
+  virtual int getChar() override
   {
     int retval = -1;
     if (read_position < write_position)
@@ -410,6 +411,17 @@ class CommandResponse: public FileIO
 
 FileIO* channel_io[MAX_CHANNEL+1] = {};
 
+
+
+void SetCommandResponse (const char* output, int len)
+{
+  channel_io[0] = new CommandResponse (output, len);
+}
+
+void SetCommandResponse (char code)
+{
+  channel_io[0] = new CommandResponse (code);
+}
 
 
 void setup()
@@ -466,28 +478,76 @@ char TranslateMode (char in)
   return mode;
 }
 
+/* Declarations used by HandleStat */
+struct timespec
+{
+  uint32_t tv_sec;
+  long tv_nsec;
+};
+struct stat {
+    uint32_t        st_dev;
+    uint32_t        st_ino;
+    unsigned char   st_mode;
+    uint32_t        st_nlink;
+    unsigned char   st_uid;
+    unsigned char   st_gid;
+    int32_t         st_size;
+    struct timespec st_atim;
+    struct timespec st_ctim;
+    struct timespec st_mtim;
+};
+
+void HandleStat (char* command_buffer)
+{
+  char* filename = command_buffer + 5;
+  if (strlen(filename) < 1)
+    return SetCommandResponse (P65_EINVAL);
+
+  // While "/" is a valid filename to pass to SD.open() in order to read the root
+  // directory, it is not accepted by SD.exists(). So we have to treat it specially
+  // here.
+  if (!SD.exists(filename) && strcmp(filename,"/"))
+  {
+    return SetCommandResponse (P65_ENOENT);
+  }
+
+  File f = SD.open (filename, O_RDONLY);
+  if (!f)
+    return SetCommandResponse (P65_EIO);
+
+  char buffer[1 + sizeof(struct stat)];
+  buffer[0] = P65_EOK;
+  struct stat* s = (struct stat*)(buffer+1);
+
+  s->st_dev = 0; // this probably should be filled in on 6502 side
+  s->st_ino = 0; // yeah, we don't really have inodes.
+  s->st_mode = (f.isDirectory()?2:1);
+  s->st_nlink = 1; // I guess?
+  s->st_uid = 0;
+  s->st_gid = 0;
+  s->st_size = f.size();
+  s->st_atim = s->st_ctim = s->st_mtim = {}; 
+
+  f.close();
+  return SetCommandResponse (buffer, 1 + sizeof(struct stat));
+}
+
 
 
 /** Parse a file open command and create file reader/writer.
- *  Returns a CommandResponse object with status and an
- *  optional error message.
- *  Note that we have to specify the return type as 
- *  "class CommandResponse*" or the Arduino IDE gives a completely
- *  nonsensical error message.
+ *  On success, the return value is the file type. On failure, an error code.
  */
-class CommandResponse* HandleFileOpen (char* command_buffer)
+char HandleFileOpen (char* command_buffer)
 {
   if (strlen(command_buffer) < 4)
   {
-    char error = P65_EINVAL;
-    return new CommandResponse (&error, 1);
+    return P65_EINVAL;
   }
   
   int channel = command_buffer[1] - 48;  // convert ascii to int
   if (channel < MIN_CHANNEL || channel > MAX_CHANNEL)
   {
-    char error = P65_EINVAL;
-    return new CommandResponse (&error, 1);
+    return P65_EINVAL;
   }
 
   char mode = command_buffer[2];
@@ -505,23 +565,19 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
     {
       if (f.isDirectory())
       {
-        // opening a directory for writing is not allowed! On Linux this
-        // would return with EISDIR, but that's not an option here.
+        // opening a directory for writing is not allowed! 
         f.close();
-        char error = P65_EUNKNOWN;
-        return new CommandResponse (&error, 1);
+        return P65_EISDIR;
       }
       else
       {
         channel_io[channel] = new FileRW (f);
-        char error = 1; // regular file
-        return new CommandResponse (&error, 1);
+        return 1; // return filetype for regular file
       }
     }
     else
     {
-      char error = P65_EIO;
-      return new CommandResponse (&error, 1);
+      return P65_EIO;
     }
   }
   else if (mode & P65_O_RDONLY)
@@ -531,8 +587,7 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
     // here.
     if (!SD.exists(filename) && strcmp(filename,"/"))
     {
-      char error = P65_ENOENT;
-      return new CommandResponse (&error, 1);
+      return P65_ENOENT;
     }
     delete (channel_io[channel]);
     File f = SD.open(filename);
@@ -541,26 +596,22 @@ class CommandResponse* HandleFileOpen (char* command_buffer)
       if (f.isDirectory())
       {
         channel_io[channel] = new DirectoryReader2 (f);
-        char error = 2; // directory
-        return new CommandResponse (&error, 1);
+        return 2; // return filetype directory
       }
       else
       {
         channel_io[channel] = new FileRW (f);
-        char error = 1; // regular file
-        return new CommandResponse (&error, 1);
+        return 1; // return filetype regular file
       }
     }
     else
     {
-      char error = P65_EIO;
-      return new CommandResponse (&error, 1);
+      return P65_EIO;
     }
   }
   
   // fallthrough error
-  char error = P65_EINVAL;
-  return new CommandResponse (&error, 1);
+  return P65_EINVAL;
 }
 
 
@@ -820,18 +871,16 @@ void loop()
       int ch = channel_io[channel]->getChar();
       if (ch == -1)
       {
-        //WriteByte((char)2);   // eof
-        WriteByte((char)0x1b);
+        WriteByte((char)0x1b);  // Send EOF: esc -1
         WriteByte((char)0xff);
       }
       else if (ch == 0x1b)      // escape character
       {
         WriteByte((char)0x1b);
-        WriteByte((char)0x1b); // send escaped escape
+        WriteByte((char)0x1b); // Send escaped escape
       }
       else
       {
-        //WriteByte ((char)0);
         WriteByte ((char)ch);
       }
     }
@@ -857,32 +906,35 @@ void loop()
 
           if (length_error)
           {
-            char response_code = P65_EINVAL;
-            channel_io[0] = new CommandResponse (&response_code,1);
+            SetCommandResponse (P65_EINVAL);
           }
           else if (!strcmp (command_buffer, "rm"))
           {
-            char response_code = HandleDeleteFile (command_buffer);
-            channel_io[0] = new CommandResponse (&response_code,1);
+            SetCommandResponse (HandleDeleteFile (command_buffer));
+            //channel_io[0] = new CommandResponse (response_code);
           }
           else if (!strcmp (command_buffer, "rmdir"))
           {
-            char response_code = HandleDeleteDirectory (command_buffer);
-            channel_io[0] = new CommandResponse (&response_code,1);
+            SetCommandResponse (HandleDeleteDirectory (command_buffer));
+            //channel_io[0] = new CommandResponse (response_code);
           }
           else if (!strcmp (command_buffer, "mkdir"))
           {
-            char response_code = HandleMkdir (command_buffer);
-            channel_io[0] = new CommandResponse (&response_code,1);
+            SetCommandResponse (HandleMkdir (command_buffer));
+            //channel_io[0] = new CommandResponse (response_code);
           }
           else if (!strcmp (command_buffer, "cp"))
           {
-            char response_code = HandleCopyFile (command_buffer);
-            channel_io[0] = new CommandResponse (&response_code,1);
+            SetCommandResponse (HandleCopyFile (command_buffer));
+            //channel_io[0] = new CommandResponse (response_code);
+          }
+          else if (!strcmp (command_buffer, "stat"))
+          {
+            HandleStat (command_buffer);
           }
           else if (!strncmp (command_buffer, "o",1))
           {
-            channel_io[0] = HandleFileOpen (command_buffer);
+            SetCommandResponse (HandleFileOpen (command_buffer));
           }
           else if (!strncmp (command_buffer, "c",1))
           {
@@ -895,8 +947,7 @@ void loop()
           }
           else
           {
-            char response_code = P65_EBADCMD;
-            channel_io[0] = new CommandResponse (&response_code,1);
+            channel_io[0] = new CommandResponse (P65_EBADCMD);
           }
         }
     }

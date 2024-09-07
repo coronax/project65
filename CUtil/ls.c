@@ -39,6 +39,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <dirent.h>
+#include <sys/stat.h>
 
 struct dirent* list[200];
 const int max_count = 200;
@@ -112,17 +113,51 @@ void DisplayDirectory (const char* name)
 }
 
 
+void DisplayFile (const char* filename, struct stat* st)
+{
+	printf ("%-12s     %10ld\r\n", filename, st->st_size);
+}
+
 
 int main(int argc, char** argv)
 {
 	int i;
+	struct stat st;
 
 	if (argc == 1)
 		DisplayDirectory ("/");
 	else
 		for (i = 1; i < argc; ++i)
 		{
-			printf ("%s:\r\n", argv[i]);
-			DisplayDirectory (argv[i]);
+			//printf ("sizeof struct stat is %d\r\n", sizeof(struct stat));
+			if (0 == stat(argv[i],&st))
+			{
+				//printf ("stat success\r\n");
+				//printf ("device number: %ld\r\n", st.st_dev);
+				//printf ("file type: %d\r\n", st.st_mode);
+				//printf ("file size: %ld\r\n", st.st_size);
+				if ((st.st_mode & S_IFMT) == S_IFDIR)
+				{
+					if (i > 1)
+						printf ("\r\n");
+					printf ("%s:\r\n", argv[i]);
+					DisplayDirectory (argv[i]);
+				}
+				else
+				{
+					DisplayFile (argv[i], &st);
+				}
+			}
+			else
+			{
+				//printf ("stat failed\r\n");
+				if (i > 1)
+					printf ("\r\n");
+				printf ("%s: ", argv[i]);
+				if (__oserror != 0)
+					printf ("%d %s\r\n", _oserror, __stroserror(_oserror));
+				else
+					printf ("%d %s\r\n", errno, strerror(errno));				
+			}
 		}
 }
