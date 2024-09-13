@@ -5,68 +5,14 @@
 #include <stdio.h>
 #include <string.h>
 
-// declarations for asm functions
-
-//void __fastcall__ sendchar (char ch);
-
-//void __fastcall__ print_hex (char ch);
 
 void __fastcall__ XModem (void);
 
-//void __fastcall__ disable_interrupts (void)
-//{
-//	__asm__ ("sei");
-//}
 
-void __fastcall__ sleep(int ms);
-
-/** Blocking version of get character. */
-//char __fastcall__ getch (void);
-
+void __fastcall__ msleep(int ms);
 
 
 char command_buffer[80];
-
-
-#if 0
-void ReadCommand()
-{
-	int i = 0;
-	char ch;
-	command_buffer[0] = 0;
-
-	for (;;)
-	{
-		ch = getch();
-		if (ch == '\n' || ch == '\r')
-		{
-			sendchar('\r');
-			sendchar('\n');
-			break;
-		}
-		else if (ch == 8) /* backspace*/
-		{
-			if (i == 0)
-				sendchar(7); /* bell */
-			else
-			{
-				--i;
-				sendchar(ch);
-			}
-		}
-		else if (i == 79)
-		{
-			sendchar(7);		// bell
-		}
-		else if (ch)
-		{
-			command_buffer[i++] = ch;
-			sendchar(ch);
-		}
-	}
-	command_buffer[i] = 0;
-}
-#endif
 
 
 
@@ -93,7 +39,7 @@ typedef struct Span
 } Span;
 
 Span song[] = {
-#if 0
+#if 1
   { 814, 137, 0, 0, 0},
   { 76, 137, 0, 0, 0},
   { 38, 177, 0, 0, 0},
@@ -1947,104 +1893,108 @@ int songlen = 260;
 
 void PlaySong()
 {
-  unsigned char* r = (unsigned char*)(0xa000);
-  int i, j;
-  int time;
+    unsigned char* r = (unsigned char*)(0xa000);
+    int i, j;
+    int time;
 
-  for (i = 0; i < songlen; ++i)
-  {
-	  Span* s = &song[i];
-	  j = 0;
-	  time = 0;
-	  while (time < s->Time)
-	  {
-		  if ((j == 0) || (s->Notes[j] != 0))
-		  {
-			  *r = s->Notes[j];
-			  sleep(20);
-			  time += 10;
-		  }
-		  ++j;
-		  if (j > 3)
-			  j = 0;
-		  
+    for (i = 0; i < songlen; ++i)
+    {
+        Span* s = &song[i];
+        j = 0;
+        time = 0;
+        while (time < s->Time)
+        {
+            if ((j == 0) || (s->Notes[j] != 0))
+            {
+                *r = s->Notes[j];
+                msleep(20);
+                time += 10;
+            }
+            ++j;
+            if (j > 3)
+                j = 0;
+            
 
-	  }
-	  
-  }
+        }
+        
+    }
 
-  *r = 0xff;
-  return;
+    *r = 0xff;
+    return;
 }
 
 
 
 int main (void)
 {
-//	_print_hex = _print_hex;
-//	char** xmodem_save_addr = (char**)0x020c;
-	unsigned char val1, val2;
-	unsigned char* r1 = (unsigned char*)(0xa000);
-	unsigned char ch;
-	int i = 0;
-	
-	//disable_interrupts();
-	printf ("Audio test.\r\n");
+    //	_print_hex = _print_hex;
+    //	char** xmodem_save_addr = (char**)0x020c;
+    unsigned char val1, val2;
+    unsigned char* r1 = (unsigned char*)(0xa000);
+    unsigned char ch;
+    int i = 0;
+    
+    printf ("Audio test.\r\n");
 
-	printf ("Initializing audio system. \r\n");
-	*r1 = 0xff;
+    printf ("Initializing audio system. \r\n");
+    *r1 = 0xff;
 
-	
-	for (;;)
-	{
-		fgets (command_buffer, 80, stdin);
-		//ReadCommand();
-		if (command_buffer[0] == 'q')
-			break;
-		else if (command_buffer[0] == 's')
-		{
-			*r1 = 0xb0;
-			sleep(2000);
-			*r1 = 0xc0;
-			sleep(2000);
-			*r1 = 0xd0;
-			sleep(2000);
-			*r1 = 0xe0;
-			sleep(2000);
-			*r1 = 0xf0;
-			sleep(2000);
-			*r1 = 0xe0;
-			sleep(2000);
-			*r1 = 0xd0;
-			sleep(2000);
-			*r1 = 0xc0;
-			sleep(2000);
-			*r1 = 0xb0;
-			sleep(2000);
-			*r1 = 0xff;
-		}
-		else if (command_buffer[0] == 'S')
-		{
-			PlaySong();
-		}
-		else
-		{
-			val1 = GetHexit(command_buffer[0]);
-			val2 = GetHexit(command_buffer[1]);
-			if ((val1 > 15) || (val2 > 15))
-			{
-				printf ("Invalid hex code\r\n");
-			}
-			else
-			{
-				*r1 = (val1 << 4) | val2;
-				sleep(2000);
-				*r1 = 0xff;
-			}
-		}
+    PlaySong();
+    printf ("done playing\r\n");
+    
+    for (;;)
+    {
+        fgets (command_buffer, 80, stdin);
+        //printf ("read buffer\r\n");
+        if (command_buffer[0] == 'q')
+            break;
+        else if (command_buffer[0] == 's')
+        {
+            printf ("Playing scale\r\n");
+            *r1 = 0xb0;
+            msleep(2000);
+            *r1 = 0xc0;
+            msleep(2000);
+            *r1 = 0xd0;
+            msleep(2000);
+            *r1 = 0xe0;
+            msleep(2000);
+            *r1 = 0xf0;
+            msleep(2000);
+            *r1 = 0xe0;
+            msleep(2000);
+            *r1 = 0xd0;
+            msleep(2000);
+            *r1 = 0xc0;
+            msleep(2000);
+            *r1 = 0xb0;
+            msleep(2000);
+            *r1 = 0xff;
+        }
+        else if (command_buffer[0] == 'S')
+        {
+            printf ("Playing song\r\n");
+            PlaySong();
+        }
+        else
+        {
+            val1 = GetHexit(command_buffer[0]);
+            val2 = GetHexit(command_buffer[1]);
+            if ((val1 > 15) || (val2 > 15))
+            {
+              printf ("Invalid hex code\r\n");
+            }
+            else
+            {
+              printf ("playing hex code %c%c\r\n", command_buffer[0],command_buffer[1]);
+              *r1 = (val1 << 4) | val2;
+              msleep(2000);
+              *r1 = 0xff;
+            }
+        }
 
-	}
+    }
 
-	return 0;
+    return 0;
 }
 	

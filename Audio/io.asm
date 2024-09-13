@@ -1,32 +1,33 @@
 
 
-.export _sleep
+.export _msleep
 
 	;;  I increasingly don't need the IO here, but i do need a sleep fn.
 	;; And I need to cycle count for that.
 
 	
-CR		=        $0d                ; carriage return
-LF      =        $0a                ; line feed
-ESC     =        $1b                ; ESC to exit
+;CR		=        $0d                ; carriage return
+;LF      =        $0a                ; line feed
+;ESC     =        $1b                ; ESC to exit
 
 ;buffer=$1000
-chartosend=$207         ; store send char for _sendchar
-readbuffer=$209         ; temp read buffer for rwbit
-writebuffer=$20a        ; temp write buffer for rwbit
-statusbyte=$20b         ; store status byte for readchar
-program_address_low=$20c
-program_address_high=$20d
+;chartosend=$207         ; store send char for _sendchar
+;readbuffer=$209         ; temp read buffer for rwbit
+;writebuffer=$20a        ; temp write buffer for rwbit
+;statusbyte=$20b         ; store status byte for readchar
+;program_address_low=$20c
+;program_address_high=$20d
 
 
 ; zero-page scratch space
-ptr1	:= $fb
-ptr1h	:= $fc
-ptr2	:= $fd
-ptr2h	:= $fe
+;ptr1	:= $fb
+;ptr1h	:= $fc
+;ptr2	:= $fd
+;ptr2h	:= $fe
+ptr1: .byte 00
+ptr1h: .byte 00
 
-
-_sleep:
+_msleep:
 	;; expect low byte of time in ms in A, high byte in x.
 	sta ptr1
 	stx ptr1h
@@ -70,12 +71,12 @@ l4:	dex
 
 
 
-VIA_ADDRESS 	= $C000
-VIA_DDRA		= VIA_ADDRESS + $3
-VIA_DDRB		= VIA_ADDRESS + $2
-VIA_DATAA		= VIA_ADDRESS + $1
-VIA_DATAB		= VIA_ADDRESS + $0
-VIA_ACR			= VIA_ADDRESS + $B          ; auxiliary control register
-VIA_SHIFT		= VIA_ADDRESS + $A
+;VIA_ADDRESS 	= $C000
+;VIA_DDRA		= VIA_ADDRESS + $3
+;VIA_DDRB		= VIA_ADDRESS + $2
+;VIA_DATAA		= VIA_ADDRESS + $1
+;VIA_DATAB		= VIA_ADDRESS + $0
+;VIA_ACR			= VIA_ADDRESS + $B          ; auxiliary control register
+;VIA_SHIFT		= VIA_ADDRESS + $A
 
 		
