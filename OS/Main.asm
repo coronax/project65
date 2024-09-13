@@ -83,7 +83,7 @@ RESET:
 	sta $A002
 	lda #$fe
 	sta $a000
-	LDA #$fd
+	LDA #$ff		; Silences the audio card, if it's attached.
 	sta $A000
 
 	jsr WARMBOOT
@@ -112,7 +112,7 @@ SOFT_RESET:
 WARMBOOT:
 
        ; setup irq & nmi vectors
-        lda #$4c
+        lda #$4c		; JMP opcode
         sta $0200
         sta $0203
         lda #<default_nmi
@@ -1336,17 +1336,17 @@ banner:
         .byte ESC, "[;H"         ; home
 		.byte 201,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,187,CR,LF
         .byte 186,"   Project:65 Computer   ",186,CR, LF
-        .byte 186,"   v0.08 (Jan 2024)      ",186,CR, LF
+        .byte 186,"   v0.09 (Sep 2024)      ",186,CR, LF
 		.byte 199,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,196,182,CR,LF,0
 
 banner2:
 		.asciiz "\r\nMonitor ready\r\n"
 
 
-string1:
-		.byte CR, LF, ESC, "[31mYOU SAID ", '"', 0
-
-string2: .byte '"', ESC, "[37m", CR, LF, 0
+;string1:
+;		.byte CR, LF, ESC, "[31mYOU SAID ", '"', 0
+;
+;string2: .byte '"', ESC, "[37m", CR, LF, 0
 
 
 ram_test_string1:

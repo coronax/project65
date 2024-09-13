@@ -196,7 +196,7 @@ cooked_mode:
         stz TTY + TTY_BLOCK::EOF  ; clear eof
         INITBUFFER ttybuffer
         lda #0                  ; 0 indicates successful open, filetype is stream
-        ldx #0
+        tax
         rts
 .endproc
 
@@ -332,7 +332,10 @@ not_eof2:
         lda TTY + TTY_BLOCK::TMPA
         WRITEBUFFER ttybuffer
         lda TTY + TTY_BLOCK::ECHO       ; and see if we need to echo
-        beq return_char
+        ;beq return_char
+        bne do_echo
+        jmp return_char
+do_echo:
         lda TTY + TTY_BLOCK::OUT_DEV
         jsr setdevice
         lda TTY + TTY_BLOCK::TMPA
@@ -398,6 +401,7 @@ HandleCR:
         ; We need to handle a carriage return. This makes the current line available,
         ; which is to say we put the character in the buffer and make the new write
         ; pos cl_ttybuffer
+        lda #10                 ; Write to the buffer as \n, not \r
         WRITEBUFFER ttybuffer
         lda wr_ttybuffer
         sta cl_ttybuffer        ; advance the start of 'current' line to after the CR
