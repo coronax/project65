@@ -103,14 +103,10 @@ DEVTAB_TEMPLATE_END:
 
 
 ; A generic response for devices that cannot be seeked. 
-; Returns the 4-byte seek response in ptr1 & ptr2
+; Returns error code in A.
 .proc 		NOSEEK
-			lda #$80		; high bit set to indicate 32-bit error value.
-			sta ptr2h
-			stz ptr2
-			stz ptr1h
 			lda #P65_ESPIPE
-			sta ptr1
+			ldx #$FF
 			rts
 .endproc			
 
