@@ -225,10 +225,25 @@ bool command_buffer_overrun = false;
 class FileIO
 {
   public:
+  int read_position = 0;
+  int write_position = 0;
+  char buffer[30];
+
   virtual ~FileIO() {;}
   virtual int getChar() {return P65_ENOSYS;}
   virtual int putChar(char) {return P65_ENOSYS;}
-  virtual long int seek(long int offset, int whence) {return 0x80000000 | P65_ENOSYS;}
+  virtual void seek() 
+  {
+    // read the reset of the command (5 bytes)
+    ReadByte();
+    ReadByte();
+    ReadByte();
+    ReadByte();
+    ReadByte();
+    buffer[0] = P65_ENOSYS;
+    read_position = 0;
+    write_position = 1;
+  }
 };
 
 
@@ -246,16 +261,16 @@ class DirectoryReader2: public FileIO
 {
   File dir;
   File entry;
-  int read_position = 0;
-  int write_position = 0;
-  struct dirent dirent = {};
-  unsigned char* buffer = (unsigned char*)&dirent;
-
+//  int read_position = 0;
+//  int write_position = 0;
+//  struct dirent dirent = {};
+//  unsigned char* buffer = (unsigned char*)&dirent;
+  struct dirent* dirent = (struct dirent*)buffer;
 public:
 
   DirectoryReader2 (File _dir)
   {
-    static_assert(sizeof(dirent) == 18);
+    static_assert(sizeof(struct dirent) == 18);
     dir = _dir;
     // we need to rewind the directory here. otherwise, the 
     // listing will start after the last file we opened.
@@ -275,10 +290,10 @@ public:
       // try to get another entry
       if (entry = dir.openNextFile())
       {
-        strncpy (dirent.d_name, entry.name(), 12);
-        dirent.d_name[12] = 0;
-        dirent.d_type = entry.isDirectory()?2:1;
-        dirent.d_size = entry.size();
+        strncpy (dirent->d_name, entry.name(), 12);
+        dirent->d_name[12] = 0;
+        dirent->d_type = entry.isDirectory()?2:1;
+        dirent->d_size = entry.size();
         write_position = sizeof(struct dirent);
         read_position = 0;
         entry.close();
@@ -302,10 +317,16 @@ class FileRW: public FileIO
   public:
   File file;
   int file_open;
+
+//  int read_position;
+//  int write_position;
+//  char buffer[5];
+
   FileRW (File f)
   {
     file = f;
     file_open = true;
+    read_position = write_position = 0;
   }
   
   virtual ~FileRW ()
@@ -318,7 +339,11 @@ class FileRW: public FileIO
   {
     if (!file_open)
       return -1;
-    int retval = file.read();
+    int retval;
+    if (read_position < write_position)
+      retval = buffer[read_position++];
+    else
+      retval = file.read();
     return retval;
   }
   
@@ -332,40 +357,83 @@ class FileRW: public FileIO
       return -1;
   }
   
-  long int seek(long int offset, int whence) override
+  void seek() override
   {
-    //return offset; // debug
+    long int offset;
+    int whence;
+    unsigned char* c = (unsigned char*)&offset;
+    c[0] = ReadByte();
+    c[1] = ReadByte();
+    c[2] = ReadByte();
+    c[3] = ReadByte();
+    c = (unsigned char*)&whence;
+    c[0] = ReadByte();
+    c[1] = 0;
+
     if (!file_open)
-      return 0x80000000 | P65_EBADF;
+    {
+      buffer[0] = P65_EBADF;
+      read_position = 0;
+      write_position = 1;
+      return;
+    }
+
     if (whence == P65_SEEK_CUR)
     {
       long int current = (long int)file.position();
       if (file.seek((uint32_t)(current + offset)))
-        return (long int)file.position();
+      {
+        buffer[0] = 0;
+        *(long int*)(buffer+1) = file.position();
+        read_position = 0;
+        write_position = 5;
+      }
       else
-        return 0x80000000 | P65_EIO;
+      {
+        buffer[0] = P65_EIO;
+        read_position = 0;
+        write_position = 1;
+      }
     }
     else if (whence == P65_SEEK_END)
     {
       long int end = (long int)file.size();
       if (file.seek((uint32_t)(end + offset)))
       {
-        return (long int)file.position();
+        buffer[0] = 0;
+        *(long int*)(buffer+1) = file.position();
+        read_position = 0;
+        write_position = 5;
       }
       else
       {
-        return 0x80000000 | P65_EIO;
+        buffer[0] = P65_EIO;
+        read_position = 0;
+        write_position = 1;
       }
     }
     else if (whence == P65_SEEK_SET)
     {
       if (file.seek((uint32_t)offset))
-        return (long int)file.position();
+      {
+        buffer[0] = 0;
+        *(long int*)(buffer+1) = file.position();
+        read_position = 0;
+        write_position = 5;
+      }
       else
-        return 0x80000000 | P65_EIO;
+      {
+        buffer[0] = P65_EIO;
+        read_position = 0;
+        write_position = 1;
+      }
     }
     else
-      return 0x80000000 | P65_EINVAL; // bad whence value
+    {
+      buffer[0] = P65_EINVAL;
+      read_position = 0;
+      write_position = 1;
+    }
   }
 
 };
@@ -375,9 +443,9 @@ class FileRW: public FileIO
 class CommandResponse: public FileIO
 {
   public:
-  int read_position;
-  int write_position;
-  char buffer[30];
+  //int read_position;
+  //int write_position;
+  //char buffer[30];
   CommandResponse (const char* output, int len)
   {
     memcpy (buffer, output, len);
@@ -798,42 +866,6 @@ char HandleFileClose (char* command_buffer)
 
 
 
-long HandleFileSeek (char* command_buffer)
-{
-  if (strlen(command_buffer) != 11)
-    return 0x80000000 | P65_EINVAL;
-
-  int channel = command_buffer[1] - 48; // cheap conversion
-  if (channel < MIN_CHANNEL || channel > MAX_CHANNEL)
-    return 0x80000000 | P65_EINVAL;
-  int whence = command_buffer[10] - 48;
-  if ((whence < 0) || (whence > 3))
-    return 0x80000000 | P65_EINVAL;
-  command_buffer[10] = 0; // provide a terminator for strtoul below
-  char* end;
-  errno = 0; // clear errno so we can know if strtoul fails.
-  // In order to convert negative offset values correctly, we convert the 
-  // 8 character hex value to an unsigned long, then cast it to signed.
-  unsigned long uoffset = strtoul(command_buffer+2, &end, 16);
-  long int offset = (long)uoffset;
-  if ((errno == ERANGE) || (end != command_buffer+10))
-    return 0x80000000 | P65_ERANGE;
-
-  if (channel_io[channel])
-  {
-    long int response_code = channel_io[channel]->seek(offset, whence);
-    return response_code;
-  }
-  else
-  {
-    // invalid or not open channel number
-    long int response_code = 0x80000000 | P65_EBADF;
-    return response_code;
-  }
-}
-
-
-
 void loop()
 {
   char channel = ReadByte();
@@ -841,6 +873,23 @@ void loop()
 
   switch (command)
   {
+  case 0x1a:  // 6502 sending a seek command
+  {
+    if ((channel < 1) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
+    {
+      // What's the best way to recover from this? If the rest of the message is
+      // there we need to read it. But what if it isn't?
+      ReadByte();
+      ReadByte();
+      ReadByte();
+      ReadByte();
+      ReadByte();
+      WriteByte((char)P65_EINVAL);
+    }
+    else
+      channel_io[channel]->seek();
+  }
+  break;
   case 0x19:  // 6502 wants to read a byte
     if ((channel == 0) && command_buffer_overrun)
     {
@@ -939,11 +988,6 @@ void loop()
           else if (!strncmp (command_buffer, "c",1))
           {
             HandleFileClose (command_buffer); 
-          }
-          else if (!strncmp (command_buffer, "k",1))
-          {
-            long response_code = HandleFileSeek (command_buffer); 
-            channel_io[0] = new CommandResponse ((char*)&response_code,4);
           }
           else
           {

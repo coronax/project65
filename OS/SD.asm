@@ -35,7 +35,7 @@
 ; for more info.
 
 .include "OS3.inc"
-.export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK
 .import _print_hex, _print_char, dev_write_hex
 
 .pc02
@@ -72,8 +72,9 @@ wait:
 .endscope
 .endmacro
 
-.macro WriteByte
-.scope
+;.macro WriteByte
+;.scope
+.proc WriteByte
 ; problem: how do we make sure CA1 is low before we do this? or are we just safe?
 			ldx 	#$ff		; DDR to write mode
 			stx		VIA_DDRA
@@ -99,12 +100,17 @@ wait:
 			nop 
 			nop
 			nop
-.endscope
-.endmacro
+
+			rts
+;.endscope
+;.endmacro
+.endproc
 
 
-.macro ReadByte
-.scope
+
+.proc ReadByte
+;.macro ReadByte
+;.scope
 ; problem: how do we make sure CA1 is low before we do this? or are we just safe?
 			;ldx 	#$ff		; DDR to write mode
 			;stx		VIA_DDRA
@@ -129,8 +135,11 @@ wait:
 			nop
 			nop 
 			nop
-.endscope
-.endmacro
+
+			rts
+;.endscope
+;.endmacro
+.endproc
 
 
 ;=============================================================================
@@ -147,14 +156,14 @@ wait:
 		;ldx DEVICE_OFFSET
 		;lda DEVTAB + DEVENTRY::CHANNEL,x
 		lda DEVICE_CHANNEL
-		WriteByte
+		jsr	WriteByte
 		lda		#$19		; "gimme a byte" command
-		WriteByte
-		ReadByte			; status 0 = good, 1 = not yet, 2 = eof
+		jsr	WriteByte
+		jsr	ReadByte			; status 0 = good, 1 = not yet, 2 = eof
 							; esc-FF = EOF, esc-0 = none available, esc-esc = escape, rest are chars
 		cmp #$1b	;esc
 		bne return_byte
-		ReadByte			; read 2nd byte of escape sequence
+		jsr	ReadByte			; read 2nd byte of escape sequence
 		cmp #$ff
 		beq eof
 		cmp #$00
@@ -202,11 +211,11 @@ eof:
 			;ldx DEVICE_OFFSET
 			;lda DEVTAB + DEVENTRY::CHANNEL,x
 			lda 	DEVICE_CHANNEL
-			WriteByte
+			jsr WriteByte
 			lda 	#$18 		; "send a byte" command
-			WriteByte
+			jsr WriteByte
 			tya
-			WriteByte
+			jsr WriteByte
 			tya					; return character written
 			ply					; restore y
 			rts
@@ -333,91 +342,56 @@ return:		ply						; pull dev channel off of stack
 .endproc
 
 
+
+;=============================================================================
+; SD_SEEK
+;=============================================================================
+; Performs a seek operation on current DEVICE_CHANNEL.
+; Arguments: A 4 byte offset in ptr1 and ptr2, a whence constant in A
+; Returns: Return code in A. if A is P65_EOK, a 4 byte offset in ptr1 & ptr2. 
+; Modifies AXY, ptr1, ptr2
+;=============================================================================
 .proc SD_SEEK
-			; ex: "k2BBBBBBBB1\0\0" channel = 2, offset = 0xBBBBBBBB, whence = 1
+			; The command sent to the Arduino is a 7-byte sequence:
+			; channel#, 0x1a, offset (32-bit little endian), whence
 			pha		; Save whence value for later
-			lda 	DEVICE_CHANNEL
-			tay		; stash device channel in y
-			stz		DEVICE_CHANNEL	; send to command channel
 			
-			lda		#'k'			; seek command (l & s were already used)
-			jsr		SD_PUTC
-			jsr		_print_hex
+			lda		DEVICE_CHANNEL
+			jsr		WriteByte
 
-			tya					; The channel we're seeking on.
-			clc
-			adc		#'0'	; convert number to ascii on the cheap
-			jsr		SD_PUTC
-			jsr		_print_hex
+			lda		#$1a			; seek command 
+			jsr		WriteByte
 
-			; When we tried to transmit this as binary, it was little endian.
-			; Now, transmitted as text, big endian. So watch for that!
-			lda		ptr2h
-			jsr		dev_write_hex
-			jsr		_print_hex
-			lda		ptr2
-			jsr		dev_write_hex
-			jsr		_print_hex
+			; offset is 4-bytes - little endian
+			lda 	ptr1
+			jsr		WriteByte
 			lda		ptr1h
-			jsr		dev_write_hex
-			jsr		_print_hex
-			lda		ptr1
-			jsr		dev_write_hex
-			jsr		_print_hex
-.if 0
-			lda		ptr1
-			jsr		SD_PUTC
-			jsr		_print_hex
-			lda		ptr1h
-			jsr		SD_PUTC
-			jsr		_print_hex
+			jsr		WriteByte
 			lda		ptr2
-			jsr		SD_PUTC
-			jsr		_print_hex
+			jsr		WriteByte
 			lda		ptr2h
-			jsr		SD_PUTC
-			jsr		_print_hex
-.endif
+			jsr		WriteByte
 
 			pla		; recover whence
-			clc
-			adc		#'0'	; convert number to ascii on the cheap
-			jsr		SD_PUTC
-			jsr		_print_hex
+			jsr		WriteByte
 
-			lda		#0			; terminate the command string with \0\0
-			jsr		SD_PUTC
-			lda		#0
-			jsr		SD_PUTC
+			jsr 	SD_GETC		; read return value
+			cmp		#P65_EOK
+			bne		ret_err
 
-			; read back a 4-byte value
+			; read back a 4-byte value - little endian
 			jsr		SD_GETC
 			sta		ptr1
-			jsr		_print_hex
 			jsr		SD_GETC
 			sta		ptr1h
-			jsr		_print_hex
 			jsr		SD_GETC
 			sta		ptr2
-			jsr		_print_hex
 			jsr		SD_GETC
 			sta		ptr2h
-			jsr		_print_hex
 
-			sty		DEVICE_CHANNEL	; done reading, restore device channel
-
-			; check error condition
-			and		#$80		; A contains high byte of result. Negative val indicates error.
-			beq		ret_ok
-			; ret error
-			lda		ptr1		; error code in low byte of result.
-			rts
-ret_ok:
 			lda		#P65_EOK
+			tax
+ret_err:
 			rts
-.endproc
-
-.proc SD_TELL
-		rts
 .endproc
 
