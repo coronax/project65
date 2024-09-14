@@ -38,12 +38,13 @@
 .export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK
 .import _print_hex, _print_char, dev_write_hex
 
-.pc02
+;.pc02
 		
 .proc SD_IOCTL
 			; Only current IOCTL for SD is init, A=0
 			cmp #0
 			bne error
+			; Initialization 
 			lda 	#%00001111
 			sta		VIA_PCR		; set CA2 high, CA1 positive edge trigger
 			stz		VIA_DDRA	; start in read mode
@@ -51,29 +52,31 @@
 			;ora		#1
 			and		#%11111110
 			sta 	VIA_ACR		; disable latching for PA
-			lda #0
+			lda #0				; return P65_EOK
 			tax
 			rts
 error:
-			; This would probably be EINVAL if we had a way to set errno
+			; Invalid ioctl number
 			lda #P65_EINVAL
 			ldx #$FF
 			rts
 .endproc
 
+
+
 .macro Wait_CA1
 .scope
 wait:
-			lda		VIA_IFR		; busy wait for IFR bit 1 to go high
-			and		#$2
-			beq		wait
+			lda	VIA_IFR			; busy wait for IFR bit 1 to go high
+			and	#$2
+			beq	wait
 			lda #$02
-			sta VIA_IFR			; Clear IFR bit 1
+			sta VIA_IFR			; Clear IFR bit 1 (A == 2)
 .endscope
 .endmacro
 
-;.macro WriteByte
-;.scope
+
+
 .proc WriteByte
 ; problem: how do we make sure CA1 is low before we do this? or are we just safe?
 			ldx 	#$ff		; DDR to write mode
@@ -102,15 +105,11 @@ wait:
 			nop
 
 			rts
-;.endscope
-;.endmacro
 .endproc
 
 
 
 .proc ReadByte
-;.macro ReadByte
-;.scope
 ; problem: how do we make sure CA1 is low before we do this? or are we just safe?
 			;ldx 	#$ff		; DDR to write mode
 			;stx		VIA_DDRA
@@ -137,8 +136,6 @@ wait:
 			nop
 
 			rts
-;.endscope
-;.endmacro
 .endproc
 
 
@@ -159,39 +156,27 @@ wait:
 		jsr	WriteByte
 		lda		#$19		; "gimme a byte" command
 		jsr	WriteByte
-		jsr	ReadByte			; status 0 = good, 1 = not yet, 2 = eof
-							; esc-FF = EOF, esc-0 = none available, esc-esc = escape, rest are chars
+		jsr	ReadByte		; esc-FF = EOF, esc-0 = none available, esc-esc = escape, rest are chars
+							
 		cmp #$1b	;esc
 		bne return_byte
-		jsr	ReadByte			; read 2nd byte of escape sequence
+		jsr	ReadByte		; read 2nd byte of escape sequence
 		cmp #$ff
 		beq eof
 		cmp #$00
 		beq nochar
-
+		; 2nd char wasn't 0 or -1, so return it (was probably an eactual ESC)
 return_byte:
-		sec 	; set carry to indicate a byte returned
+		sec 				; set carry to indicate a byte returned
 		ldx #$00
 		rts
 		
-
-;		cmp		#1			; test for no character available
-;		beq		nochar
-;		cmp 	#2			; test for eof
-;		beq		eof
-
-;		ReadByte			; read actual character
-;		sec					; read a byte, so set carry
-;		ldx		#$00
-;		rts
 nochar:
 		clc
 		rts					; no char read, so clear carry & return
 eof:
 		sec					; I guess eof counts as a token for this purpose, so set carry
-		tax					; There's already an FF in A.
-		;lda 	#$ff
-		;ldx		#$FF		; carry set & x=$FF equals EOF.
+		tax					; Copy the FF in A to X
 		rts
 .endproc
 
@@ -375,18 +360,18 @@ return:		ply						; pull dev channel off of stack
 			pla		; recover whence
 			jsr		WriteByte
 
-			jsr 	SD_GETC		; read return value
+			jsr 	ReadByte		; read return value
 			cmp		#P65_EOK
 			bne		ret_err
 
 			; read back a 4-byte value - little endian
-			jsr		SD_GETC
+			jsr		ReadByte
 			sta		ptr1
-			jsr		SD_GETC
+			jsr		ReadByte
 			sta		ptr1h
-			jsr		SD_GETC
+			jsr		ReadByte
 			sta		ptr2
-			jsr		SD_GETC
+			jsr		ReadByte
 			sta		ptr2h
 
 			lda		#P65_EOK

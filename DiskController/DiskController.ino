@@ -372,9 +372,7 @@ class FileRW: public FileIO
 
     if (!file_open)
     {
-      buffer[0] = P65_EBADF;
-      read_position = 0;
-      write_position = 1;
+      WriteByte (P65_EBADF);
       return;
     }
 
@@ -383,16 +381,17 @@ class FileRW: public FileIO
       long int current = (long int)file.position();
       if (file.seek((uint32_t)(current + offset)))
       {
-        buffer[0] = 0;
-        *(long int*)(buffer+1) = file.position();
-        read_position = 0;
-        write_position = 5;
+        WriteByte (0);
+        long int pos = file.position();
+        char* buf = (char*)(&pos);
+        WriteByte (buf[0]);
+        WriteByte (buf[1]);
+        WriteByte (buf[2]);
+        WriteByte (buf[3]);
       }
       else
       {
-        buffer[0] = P65_EIO;
-        read_position = 0;
-        write_position = 1;
+        WriteByte (P65_EIO);
       }
     }
     else if (whence == P65_SEEK_END)
@@ -400,39 +399,39 @@ class FileRW: public FileIO
       long int end = (long int)file.size();
       if (file.seek((uint32_t)(end + offset)))
       {
-        buffer[0] = 0;
-        *(long int*)(buffer+1) = file.position();
-        read_position = 0;
-        write_position = 5;
+        WriteByte (0);
+        long int pos = file.position();
+        char* buf = (char*)(&pos);
+        WriteByte (buf[0]);
+        WriteByte (buf[1]);
+        WriteByte (buf[2]);
+        WriteByte (buf[3]);
       }
       else
       {
-        buffer[0] = P65_EIO;
-        read_position = 0;
-        write_position = 1;
+        WriteByte (P65_EIO);
       }
     }
     else if (whence == P65_SEEK_SET)
     {
       if (file.seek((uint32_t)offset))
       {
-        buffer[0] = 0;
-        *(long int*)(buffer+1) = file.position();
-        read_position = 0;
-        write_position = 5;
+        WriteByte (0);
+        long int pos = file.position();
+        char* buf = (char*)(&pos);
+        WriteByte (buf[0]);
+        WriteByte (buf[1]);
+        WriteByte (buf[2]);
+        WriteByte (buf[3]);
       }
       else
       {
-        buffer[0] = P65_EIO;
-        read_position = 0;
-        write_position = 1;
+        WriteByte (P65_EIO);
       }
     }
     else
     {
-      buffer[0] = P65_EINVAL;
-      read_position = 0;
-      write_position = 1;
+        WriteByte (P65_EINVAL);
     }
   }
 
@@ -911,8 +910,8 @@ void loop()
       else
       {
         // invalid channel. Write an EOF.
-        WriteByte((char)0x1b);
-        WriteByte((char)0xff);
+        WriteByte((char)0x1b); // esc
+        WriteByte((char)0xff); // -1
       }
     }
     else
