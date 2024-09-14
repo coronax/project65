@@ -165,6 +165,9 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; device-specific operation is in A
 ; Returns 0 in AX for success, -1 for failure
 ; Modifies AX
+; Standard Ioctl operations:
+;    0 - initialize
+;    1 - flush
 .proc dev_ioctl
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::IOCTL,X)

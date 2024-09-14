@@ -256,12 +256,17 @@ done:
 ;=============================================================================
 .proc SERIAL_IOCTL
 		cmp #0
-		bne error
-		jmp SERIAL_INIT
+		beq SERIAL_INIT
+		cmp #1
+		beq io_flush
 error:
 		; Unidentified command value. return EINVAL.
 		lda #P65_EINVAL
 		ldx #$FF
+		rts
+io_flush:
+		COUNTBUFFER wbuffer
+		bne io_flush
 		rts
 .endproc
 
