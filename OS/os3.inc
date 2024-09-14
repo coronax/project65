@@ -179,6 +179,8 @@ ptr1h	= $31
 ptr2	= $32
 ptr2h	= $33
 
+; Also, the XModem routine uses some variables from
+; $38 through $3f.
 
 ;=============================================================================
 ; Macros
