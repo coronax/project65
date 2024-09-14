@@ -226,7 +226,6 @@ open_success:
 	; read file content on device 2
 	lda #2
 	jsr	setdevice
-		
         
 get1:	
         jsr 	dev_getc
@@ -241,27 +240,14 @@ get2:
 
         ; Read using dev_read
 loop:
-        lda ptr2        ; read wants buffer pointer in ptr1
-        sta ptr1
-        lda ptr2h
+        lda ptr2        ; Read wants buffer pointer in ptr1.
+        sta ptr1        ; But also modifies it, so we keep our
+        lda ptr2h       ; count in ptr2.
         sta ptr1h
         lda #0
         ldx #4 ; read 1k at a time?
         jsr dev_read    ; 0 in AX indicates EOF
-.if 0
-        ; print read count
-        phx
-        pha
-        txa
-        jsr _print_hex
-        pla
-        pha
-        jsr _print_hex
-        lda #' '
-        jsr _print_char
-        pla
-        plx
-.endif
+
         cpx #0
         bne check_for_error
         cmp #0
@@ -276,35 +262,17 @@ check_for_error:
         bra error
 inc_loop:
         clc             ; add the current value in AX to ptr1/ptr1h.
-        adc ptr2        ; Usually this will just be $40 except for
+        adc ptr2        ; Usually this will just be $0400 except for
         sta ptr2        ; the last read of the file.
-        txa             ; This also ensures ptr1 points at 1 past end
+        txa             ; This also ensures ptr2 points to 1 past end
         adc ptr2h       ; of program when we finish.
         sta ptr2h
-.if 0
-        ; print current addr
-        lda #'!'
-        jsr _print_char
-        lda ptr2h
-        jsr _print_hex
-        lda ptr2
-        jsr _print_hex
-        lda #' '
-        jsr _print_char
-.endif
+
         bra loop
 
 done:
 	jsr dev_close
 
-	; figure out end address just so i can print it correctly
-	;clc
-	;tya
-	;adc	ptr1
-	;sta	program_end_low
-	;lda	ptr1h
-	;adc 	#0
-	;sta	program_end_high
         lda ptr2
         sta program_end_low
         lda ptr2h

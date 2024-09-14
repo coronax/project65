@@ -32,7 +32,7 @@
 .export mkdir_command, rmdir_command, rm_command, cp_command, mv_command ; strings shared with filesystem
 .import XModem, _print_string, _print_char, _read_char, _print_hex
 .import setdevice, init_io, Max3100_IRQ, Max3100_TimerIRQ, SERIAL_PUTC
-.import dev_getc, dev_writestr, dev_putc, dev_open, dev_close, set_filename, set_filemode, init_devices
+.import dev_getc, dev_writestr, dev_putc, dev_open, dev_close, dev_ioctl, set_filename, set_filemode, init_devices
 .import dev_read
 .import TokenizeCommandLine, test_tokenizer
 .import mkdir, rmdir, rm, cp, mv, load_program
@@ -108,7 +108,14 @@ SOFT_RESET:
 
 WARMBOOT:
 
-       ; setup irq & nmi vectors
+		; Initialize current program address
+		stz program_address_low
+		stz program_address_high
+		stz program_end_low
+		stz program_end_high
+		stz program_ret
+
+       	; setup irq & nmi vectors
         lda #$4c		; JMP opcode
         sta $0200
         sta $0203
@@ -230,7 +237,11 @@ skip:
 		jsr load_program
 		cmp #0
 		bne error
-		jmp execute_program
+		jsr print_program_addresses
+		jsr execute_program
+		cmp #0				; check execute_program return value
+		bne error
+		jmp _commandline
 error:
 		jsr perror
 		jmp _commandline	; Go back to the start of command processor.
@@ -238,7 +249,14 @@ error:
 .endproc
 
 
-.proc execute_program
+
+;=============================================================================
+; print_program_addresses
+;=============================================================================
+; Prints a message to the console with the beginning and ending addresses of 
+; the currently loaded program.
+;=============================================================================
+.proc print_program_addresses
         printstring loadmsg
         lda program_address_high
         jsr _print_hex
@@ -251,31 +269,55 @@ error:
         jsr _print_hex
         printstring crlf
 
-		; at this point we should wait for the send buffer to
-		; empty before starting execution of the program. This
-		; is especially important for something like the insitu
-		; loader, because it's going to blow up the IO system.
+		; Flush the serial out before starting the program. This is
+		; especially important for something like the insitu loader
+		; because it's going to blow up the IO system.
+		lda #0			; Flush the serial device
+		jsr setdevice	; before launching the program.
+		lda #1
+		jsr dev_ioctl
+		rts
+loadmsg:   	.asciiz "Program located at $"
+loadmsg2:	.asciiz " to $"
+.endproc
+
+
 		
-		
-		; now we have to do another faux jsr into our program
-		; push a fake return address onto the stack and then jmp
+;=============================================================================
+; execute_program
+;=============================================================================
+; Launches the currently loaded program from program_address_low.
+; If the program ends in a way that cleans up the stack behind it, this 
+; routine will rts to the caller.
+; The called program will receive whatever command-line arguments are 
+; currently set in argc/argv.
+;=============================================================================
+.proc execute_program
+		lda program_address_low		; Check if a program has been loaded.
+		bne program_is_loaded
+		lda program_address_high
+		bne program_is_loaded
+		lda #P65_EBADCMD	; vaguely appropriate error message
+		rts
+program_is_loaded:
+		; The 6502 doesn't let us just jsr(program_address_low).
+		; Instead, we can push a return address onto the stack. The high byte
+		; goes first so in-memory it will be little-endian. Then we do an 
+		; indirect jmp into the program start address. When the program does
+		; an rts, it will actually jump to one byte past the return address
+		; we placed on the stack (thus the nop below).
 		lda #>program_return
 		pha
 		lda #<program_return
 		pha
+		stz program_ret		; Initialize program return value.
 		jmp	(program_address_low)
-
 program_return:
-		nop
-		jmp _commandline
-		
-loadmsg:   	.asciiz "Program located at $"
-loadmsg2:	.asciiz " to $"
-error:
-		jsr perror
-		jmp _commandline
-
+		nop				; Important for aligning the return address.
+		lda #0			; return code
+		rts
 .endproc
+
 
 
 .rodata
@@ -673,103 +715,14 @@ cleanup:
 filename_ok:
 		lda argv1L
 		ldx argv1H
-		jsr set_filename
-		
-		lda #2
-		jsr setdevice
-		jsr	dev_open
-		
-		; check return code which is in A - we want a regular file (1)
+		jsr load_program
 		cmp #0
-		bmi error
-		beq open_success
-		cmp #1
-		beq open_success
-		
-		lda #P65_EISDIR	; and fall thru to error handler
-
-		; an error happened.  Print the command response & return to command line
-	error:
-		; A successful load will launch straight into the program, so we need to
-		; do all the cleanup here.
+		bne error
+		jsr print_program_addresses
+		jmp _commandline
+error:
 		jsr perror
-		;lda #2
-		;jsr setdevice
-		jsr dev_close
-		jmp _commandline
-		
-open_success:
-		; read file content on device 2
-		lda #2
-		jsr		setdevice
-		
-get1:	jsr 	dev_getc
-		bcc		get1
-		sta		program_address_low
-		sta		ptr1
-get2:	jsr		dev_getc
-		bcc 	get2
-		sta		program_address_high
-		sta		ptr1h
-		
-		ldy		#0
-loop:	jsr		dev_getc
-		bcc		loop
-		cpx		#$FF
-		beq 	done
-		sta		(ptr1),y
-
-		iny
-		bne		loop
-		inc		ptr1h
-		lda		#'.'
-		jsr		SERIAL_PUTC
-		bra		loop
-done:
-		jsr dev_close
-
-		; figure out end address just so i can print it correctly
-		clc
-		tya
-		adc		ptr1
-		sta		program_end_low
-		lda		ptr1h
-		adc 	#0
-		sta		program_end_high
-
-        printstring loadmsg
-        lda program_address_high
-        jsr _print_hex
-        lda program_address_low
-        jsr _print_hex
-		printstring loadmsg2
-        lda program_end_high
-        jsr _print_hex
-        lda program_end_low
-        jsr _print_hex
-        printstring crlf
-
-		; at this point we should wait for the send buffer to
-		; empty before starting execution of the program. This
-		; is especially important for something like the insitu
-		; loader, because it's going to blow up the IO system.
-		
-		
-		; now we have to do another faux jsr into our program
-		; push a fake return address onto the stack and then jmp
-		lda #>program_return
-		pha
-		lda #<program_return
-		pha
-		jmp	(program_address_low)
-
-program_return:
-		nop
-		jmp _commandline
-		
-loadmsg:   	.asciiz "Program located at $"
-loadmsg2:	.asciiz " to $"
-
+		jmp _commandline	; Go back to the start of command processor.
 .endproc
 
 
@@ -1097,10 +1050,8 @@ run_code:
 		; and then doing an indirect jmp.
 		lda #>program_return
 		pha
-		;jsr _print_hex
 		lda #<program_return
 		pha
-		;jsr _print_hex
 		stz program_ret		; Initialize program return value.
 		jmp	(ptr2)
 program_return:
@@ -1134,46 +1085,11 @@ return_msg:	.asciiz "Program returned "
 ; Effectively this is like g, without specifying memory location
 ;=============================================================================
 .proc process_run
-		lda argc
-;		cmp #1
-;		bne read_address
-;use_default_address:
-		lda program_address_low		; No arguments; use default program
-		sta ptr2					; location.
-		lda program_address_high
-		sta ptr2h
-;		bra run_code
-;read_address:						; Read program start address from the 
-;		lda argv1L					; command line (argv[1]).
-;		ldx argv1H
-;        jsr parse_address
-;        sta ptr2
-;        stx ptr2h
-;run_code:		
-		; Fake an indirect jsr by pushing return address to stack manually 
-		; and then doing an indirect jmp.
-		lda #>program_return
-		pha
-		lda #<program_return
-		pha
-		stz program_ret		; Initialize program return value.
-		jmp	(ptr2)
-program_return:
-		nop					; The jsr return will skip over this instruction.
-		;printstring return_msg
-		;lda program_ret
-		;jsr _print_hex
-		;printstring crlf
-		; Jumping to soft reset at the end of the program is the safest option
-		; because it guarantees we'll be in a known state regardless of how
-		; messily the program ended. But any output still in the write buffer
-		; will be cut off.
-		;jmp SOFT_RESET 
-		; So for now we'll try the less safe option of just returning into the
-		; command line routine.
-;cleanup:
-		jmp _commandline
-;return_msg:	.asciiz "Program returned "
+		jsr execute_program
+		cmp #0				; check execute_program return value
+		beq done
+		jsr perror			; print any error msg
+done:	jmp _commandline
 .endproc
 
 
@@ -1188,6 +1104,8 @@ program_return:
 .proc process_x
 		stz program_address_low
 		stz program_address_high
+		stz program_end_low
+		stz program_end_high
         printstring crlf
         jsr XModem
         cmp #$FE
@@ -1197,39 +1115,7 @@ program_return:
         cmp #$FC
         beq xmodem_error
         printstring crlf
-        printstring xmsg
-        lda program_address_high
-        jsr _print_hex
-        lda program_address_low
-        jsr _print_hex
-		printstring xmsg2
-        lda program_end_high
-        jsr _print_hex
-        lda program_end_low
-        jsr _print_hex
-        printstring crlf
-		; So how can we jsr into our downloaded program?  
-		; One option is to push the address onto the stack and then rts
-		; to jump back.
-		; First, we push the return address of our faux-jsr, high-byte 
-		; first.  Note that we'll return to one byte past the value we
-		; store, which is why I have that NOP down there.
-		; Then we push the address we want to jsr to (minus 1),
-		; again pushing the high byte first, and then we rts.
-		; The rts will jump into the program we want to execute, and the
-		; rts at the end of the program will jump back to program_return
-		; (plus 1).
-		
-		; fake an indirect jsr by pushing return address manually 
-		; and then doing an indirect jmp
-;		lda #>program_return
-;		pha
-;		lda #<program_return
-;		pha
-;		jmp	(program_address_low)
-
-program_return:
-		nop
+		jsr print_program_addresses
 		jmp _commandline
 		
 xmodem_escaped:
@@ -1241,8 +1127,6 @@ xmodem_error:
         printstring xmodem_error_msg
         jmp _commandline
 		
-xmsg:   .asciiz "Program located at $"
-xmsg2:	.asciiz " to $"
 xmodem_escaped_msg:
         .asciiz "Quitting XModem upload\r\n"
 xmodem_error_msg:
@@ -1401,13 +1285,10 @@ prompt:
 		bra done
 
 s6522_timer1:	
-		; if it was, the only thing we're doing now is timer1
+		; This is our 100 Hz timer interrupt
 		lda VIA_TIMER1_CL	; read to clear interrupt flag
-		;dec tod_int_counter
-		;bne done_timer
-		;lda #$64	; so we update counter 1 every 100th interrupt
-		;sta tod_int_counter
 
+		; update time of day
 		inc tod_seconds100
 		lda tod_seconds100
 		cmp #100
@@ -1420,20 +1301,12 @@ s6522_timer1:
 		inc tod_seconds+2
 		bne done_timer
 		inc tod_seconds+3
-
 done_timer:
-		jsr Max3100_TimerIRQ
-.if 0
-		; also in the timer interrupt, check the write buffer
-		; Eventually this should be removed and replaced by
-		; smart handling of the 3100's transmit interrupt.
-		COUNTBUFFER wbuffer
-		beq done_write
-		jsr Max3100_SendRecv
-.endif
-done_write:
 
-		; lda VIA_TIMER1_CL	; read to clear interrupt flag
+		; Call the serial driver's timer IRQ. This may be a kludge
+		; worth further investigation.
+		jsr Max3100_TimerIRQ
+
 		bra done
 
 max3100_irq:
@@ -1442,7 +1315,8 @@ max3100_irq:
 		jsr Max3100_IRQ
 
 done:
-		ply
+		; Restore the saved registers & return from interrupt.
+		ply	
 		plx
 		pla
 		rti
