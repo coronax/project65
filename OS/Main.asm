@@ -89,10 +89,7 @@ RESET:
 	jsr WARMBOOT
 
 	; Post-initialization RESET includes memtest & printing a banner.
-    ldy #$ff
-arbitrarydelay:
-    dey
-    bne arbitrarydelay
+	jsr ResetTerminal
 
     printstring banner
     jsr memtest
@@ -124,12 +121,6 @@ WARMBOOT:
         lda #>default_irq
         sta $0205
 
-
-        ;lda #0
-        ;sta echo
-        ;sta chartosend
-        ;sta readbuffer
-
 		jsr init_devices
 
 		; initialize time of day clock
@@ -138,8 +129,6 @@ WARMBOOT:
 		stz tod_seconds+2
 		stz tod_seconds+3
 		stz tod_seconds100
-		;lda #$64
-		;sta tod_int_counter
 
 		; initialize VIA Timer 1 to generate 100 Hz timer. At 4 MHz
 		; that should require a 40000 ($9C40)clock timer.
@@ -233,6 +222,7 @@ skip:
 		DispatchCommandLine rmdir_command, ProcessRmdirCommand
 		DispatchCommandLine save_command, ProcessSaveCommand
 		DispatchCommandLine uptime_command, UptimeCommand
+		DispatchCommandLine cls_command, ProcessCLSCommand
 
 		; OK, well maybe it's a program to be run. We can try running from current directory or from /c
 		lda argv0L
@@ -305,6 +295,7 @@ save_command:	.asciiz "save"
 uptime_command:	.asciiz "uptime"
 x_command:		.asciiz "x"
 run_command:    .asciiz "r"
+cls_command:	.asciiz "cls"
 .code
 
 
@@ -331,8 +322,10 @@ done_false:
 		rts
 .endproc 
 
+
+
 ;==============================================================
-; Prints an error message for the error in A
+; Prints an error message for the error code in A
 ;==============================================================
 .proc perror
 	and #$7f	; clear high bit
@@ -530,7 +523,7 @@ cleanup:
 syntax_ok:
 		lda argv1L
 		ldx argv1H
-		jsr rmdir		; Call mkdir!
+		jsr rmdir		; Call rmdir!
 		cmp #0			; Check return code
 		beq cleanup
 
@@ -862,6 +855,31 @@ cleanup:
 msg:
 .asciiz " seconds\r\n"
 .endproc
+
+
+
+.proc ProcessCLSCommand
+		jsr ResetTerminal
+		jmp _commandline
+.endproc
+
+
+
+.proc ResetTerminal
+		printstring rst_text
+		ldx #$ff		; If we send text too quickly after sending
+dly2:	lda #$ff		; the reset code, some of it may get 
+dly:	dec				; eaten. This short delay loop seems to be
+		bne dly			; enough to prevent this.
+		dex
+		bne dly2
+		rts
+; esc-c is a "reset terminal" code that dates back to at least the VT100,
+; but isn't in most of the ANSI guides I found online. I found it in the 
+; Amiga Devices RKRM. It seems to work properly with TeraTerm.
+rst_text: .asciiz "\x1b\x63"
+.endproc
+
 
 
 ; a klugey utility function that prints a file stream to the console,
@@ -1332,8 +1350,8 @@ parse_hexit_3:
 
 
 banner:
-        .byte ESC, "[2J"         ; clear screen
-        .byte ESC, "[;H"         ; home
+;        .byte ESC, "[2J"         ; clear screen
+;        .byte ESC, "[;H"         ; home
 		.byte 201,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,205,187,CR,LF
         .byte 186,"   Project:65 Computer   ",186,CR, LF
         .byte 186,"   v0.09 (Sep 2024)      ",186,CR, LF
