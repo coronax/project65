@@ -185,13 +185,14 @@ done:
 .endproc
 .endif
 
+
+
 ; Put the start address in ptr2
 .proc PrintMemory
-		; print 8 rows of 8 characters of output
-		; this is broken because print_hex uses x.
-		ldx #8
-@loop:  
-		phx
+	; print 8 rows of 8 characters of output
+	ldx #8
+loop:  
+	phx
         lda #'m'
         jsr _print_char
         lda #'.'
@@ -205,73 +206,40 @@ done:
         jsr _print_char
         jsr _print_char
 
+        ; Print the hexadecimal representation of memory
         ldy #0
-        lda (ptr2),y
+loop2:  lda (ptr2),y
         jsr _print_hex
         lda #' '
         jsr _print_char
         iny
-        lda (ptr2),y
-        jsr _print_hex
-        lda #' '
-        jsr _print_char
-        iny
-        lda (ptr2),y
-        jsr _print_hex
-        lda #' '
-        jsr _print_char
-        iny
-        lda (ptr2),y
-        jsr _print_hex
-        iny
-		
-        lda #' '
-        jsr _print_char
+        cpy #8
+        bne loop2
 
-        lda (ptr2),y
-        jsr _print_hex
-        lda #' '
-        jsr _print_char
-        iny
-        lda (ptr2),y
-        jsr _print_hex
-        lda #' '
-        jsr _print_char
-        iny
-        lda (ptr2),y
-        jsr _print_hex
-        lda #' '
-        jsr _print_char
-        iny
-        lda (ptr2),y
-        jsr _print_hex
+        ; Print the ascii representation of the memory
+	ldy #0
+loop3:	lda (ptr2),y
+	jsr print_printable
+	iny
+	cpy #8
+	bne loop3
 		
-		lda #' '
-		jsr _print_char
-		
-		ldy #0
-@loop2:	lda (ptr2),y
-		jsr print_printable
-		iny
-		cpy #8
-		bne @loop2
-		
-        ;printstring crlf
-		lda #CR
-		jsr _print_char
-		lda #LF
-		jsr _print_char
+	lda #CR         ; end of line
+	jsr _print_char
+	lda #LF
+	jsr _print_char
 
-		clc					; increment loop
-		lda ptr2
-		adc #8
-		sta ptr2
-		lda ptr2h
-		adc #0
-		sta ptr2h
-		plx
-		dex
-		beq @done
-		jmp @loop
+	clc	        ; increment memory pointer
+	lda ptr2
+	adc #8
+	sta ptr2
+	lda ptr2h
+	adc #0
+	sta ptr2h
+
+	plx             ; decrement row count & loop
+	dex
+        bne loop
+
 @done:	rts	; return to command line parser
 .endproc
