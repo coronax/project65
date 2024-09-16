@@ -1,4 +1,32 @@
 // P65NoteExtractor.cpp
+// Copyright(c) 2023 Christopher Just
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met :
+//
+//    Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//
+//    Redistributions in binary form must reproduce the above
+//    copyright notice, this list of conditions and the following
+//    disclaimer in the documentation and /or other materials
+//    provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+// FOR A PARTICULAR PURPOSE ARE DISCLAIMED.IN NO EVENT SHALL THE
+// COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+// INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES(INCLUDING,
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TORT(INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+// OF THE POSSIBILITY OF SUCH DAMAGE.
+
 // This program reads a MIDI file and tries to output a data structure that
 // can be used by the Project:65 audio test program.
 //
@@ -7,11 +35,15 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <set>
 #include <vector>
 #include <filesystem>
 
 using std::byte;
+using std::format;
+using std::println;
+using std::string;
 using std::vector;
 using std::cout, std::endl;
 
@@ -24,6 +56,43 @@ struct MidiFreq
 	float Wavelength = 0.f; // Seconds
 	int Count = 0;   // p65 counter value
 };
+
+
+
+enum class EventType { NOTE_ON, NOTE_OFF };
+
+
+
+struct MidiEvent
+{
+	int mTime;  // absolute, not delta
+	EventType mEventType;
+	int mChannel;
+	int mTrack;
+	uint16_t mKey;
+	uint16_t mVelocity;
+};
+
+struct MidiTrack
+{
+	string mName;
+	vector<MidiEvent> mEvents;
+};
+
+struct MidiSong
+{
+	string mFilename;
+	vector<MidiTrack> mTracks;
+	int mTrackCount = 0;
+	vector<std::string> mErrors;
+
+	MidiSong(string fname) : mFilename(fname)
+	{
+		;
+	}
+};
+
+
 
 // Raw MIDI note data. Wavelength & Count values are filled in by InitializeFreqsTable.
 std::vector<MidiFreq> Freqs = {
@@ -251,6 +320,10 @@ void PrintP65SongFn(std::string notes)
 }
 #endif
 
+
+
+// Interpret the bytes beginning at buffer[index] as a big-endian unsigned
+// 32-bit value.
 uint32_t u32(vector<char>& buffer, uint64_t index)
 {
 	unsigned char* b = (unsigned char*)buffer.data();
@@ -261,6 +334,10 @@ uint32_t u32(vector<char>& buffer, uint64_t index)
 	return v;
 }
 
+
+
+// Interpret the bytes beginning at buffer[index] as a big-endian unsigned
+// 16-bit value.
 uint16_t u16(vector<char>& buffer, uint64_t index)
 {
 	unsigned char* b = (unsigned char*)buffer.data();
@@ -269,6 +346,11 @@ uint16_t u16(vector<char>& buffer, uint64_t index)
 	return v;
 }
 
+
+
+// Interpret the bytes beginning at buffer[index] as a MIDI VLQ. This is a
+// multibyte integer. For each byte, the msb=1 indicates that there will be
+// an additional byte following. The other 7 bits are actual data.
 int vlq(vector<char>& buffer, uint64_t& index)
 {
 	int v = 0;
@@ -288,29 +370,16 @@ int vlq(vector<char>& buffer, uint64_t& index)
 	return v;
 }
 
-enum class EventType { NOTE_ON, NOTE_OFF };
 
 
-struct MidiEvent
-{
-	int mTime;  // absolute, not delta
-	EventType mEventType;
-	int mChannel;
-	int mTrack;
-	uint16_t mKey;
-	uint16_t mVelocity;
-};
-
-
-std::vector<MidiEvent> gEvents;
-int gTrackCount = 0;
-
-uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
+uint64_t ReadChunk(MidiSong& song, vector<char>& buffer, uint64_t index)
 {
 	std::string chunk_type(buffer.begin() + index, buffer.begin() + index + 4);
 	uint32_t len = u32(buffer, index + 4);
 	uint64_t result = index + len + 8;
-	std::cout << "Reading chunk " << chunk_type << " size " << len << std::endl;
+	
+	//std::cout << "Reading chunk " << chunk_type << " size " << len << " at " << index << std::endl;
+	println("Reading chunk {} size {} at {}", chunk_type, len, index);
 
 	index += 8;
 
@@ -332,29 +401,45 @@ uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
 	}
 	else if (chunk_type == "MTrk")
 	{
-		std::cout << "Reading track chunk" << std::endl;
+		std::cout << "Reading Mtrk chunk" << std::endl;
+		MidiTrack track;
+
 		uint64_t track_end = index + len;
-		int track_num = gTrackCount++;
+		int track_num = song.mTrackCount++;
 
 		std::set<int> on_notes;
 		int absolute_time = 0;
+		
+		uint8_t previous_event = 0;
 
 		while (index < track_end)
 		{
 			// read midi events! woo!
 			int delta = vlq(buffer, index);
 			absolute_time += delta;
-			uint8_t event_type = (uint8_t)buffer[index++];
+			uint8_t event_type = (uint8_t)buffer[index];
+			if (event_type & 0x80)
+			{
+				// actually an event - eat it
+				++index;
+				previous_event = event_type;
+			}
+			else
+			{
+				// the actual event status was omitted, substitute previous
+				event_type = previous_event;
+			}
 
 			bool handled = true;
 			switch (event_type)
 			{
 			case 0xf0:
 			{
-				cout << "System Exclusive" << endl;
+				cout << "System Exclusive at index " << index << endl;
 				do {
 					;
-				} while (buffer[index++] != 0xf7);
+				} while ((uint8_t)buffer[index++] != 0xf7);
+				cout << "Exit System Exclusive at index " << index << endl;
 				break;
 			}
 			case 0xf1:
@@ -398,13 +483,37 @@ uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
 				// meta event
 				int meta_event_type = buffer[index++];
 				int meta_len = vlq(buffer, index);
-				std::cout << "Reading meta event " << std::hex << meta_event_type << std::dec << " of length " << meta_len << std::endl;
-				index += meta_len;
-
-				if (meta_event_type == 0x2f)
+				switch (meta_event_type)
 				{
-					std::cout << " Read track end token. index = " << index << " and track end expected at " << track_end << std::endl;
+				case 0x03:
+				{
+					std::string name(&buffer[index], meta_len);
+					track.mName = name;
+					println("meta event Track Name '{}'", name);
 				}
+				break;
+				case 0x06:
+				{
+					std::string value(&buffer[index], meta_len);
+					println("meta event Marker '{}'", value);
+				}
+				break;
+				case 0x20:
+					// prefix channel. assigns a channel number to a following(?) event, 
+					// which doesn't ordinarily encode one. Apparently useful in editing?
+					break;
+				case 0x21:
+					// prefix port. Identifies the sound card this track should be sent
+					// to. Typically 0, but I suppose this is a way to have more than 
+					// 16 channels?
+					break;
+				case 0x2f:
+					println("meta event track end. index = {}; expected {}", index + meta_len, track_end);
+					break;
+				default:
+					println("meta event {:#2x} of length {}", meta_event_type, meta_len);
+				}
+				index += meta_len;
 			}
 			break;
 
@@ -423,7 +532,7 @@ uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
 					int channel = event_type & 0x0f;
 					uint16_t key = (uint16_t)(buffer[index++]);
 					uint16_t velocity = (uint16_t)(buffer[index++]);
-					gEvents.emplace_back(absolute_time, EventType::NOTE_OFF, channel, track_num, key, velocity);
+					track.mEvents.emplace_back(absolute_time, EventType::NOTE_OFF, channel, track_num, key, velocity);
 					//cout << delta << " : Note off ch " << (event_type & 0xf) << " key " << key << "  " << velocity << endl;
 
 
@@ -451,7 +560,7 @@ uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
 					int channel = event_type & 0x0f;
 					uint16_t key = (uint16_t)(buffer[index++]);
 					uint16_t velocity = (uint16_t)(buffer[index++]);
-					gEvents.emplace_back(absolute_time, EventType::NOTE_ON, channel, track_num, key, velocity);
+					track.mEvents.emplace_back(absolute_time, EventType::NOTE_ON, channel, track_num, key, velocity);
 					//cout << delta << " : Note on ch " << (event_type & 0xf) << " key " << key << "  " << velocity << endl;
 					//on_notes.insert(key);
 
@@ -480,9 +589,10 @@ uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
 				break;
 				case 0xb0:
 				{
+					// control change
 					uint16_t controller = (uint16_t)(buffer[index++]);
 					uint16_t value = (uint16_t)(buffer[index++]);
-					cout << "Control change " << controller << "  " << value << endl;
+					cout << "Control change " << controller << " " << value << endl;
 				}
 				break;
 				case 0xc0:
@@ -513,14 +623,19 @@ uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
 			}
 			if (!handled)
 			{
-				std::cout << "unknown event type " << std::hex << (int)event_type << std::dec << " - halting" << std::endl;
+				string error = format("unknown event type {:#x} at {} - halting", (int)event_type, index-1);
+				song.mErrors.push_back(error);
+				std::cout << error << endl;
 				break;
 			}
 		}
+		song.mTracks.push_back(std::move(track));
 	}
 	else
 	{
-		std::cout << "Skipping unknown chunk " << chunk_type << std::endl;
+		string error = format("Skipping unknown chunk {}", chunk_type);
+		song.mErrors.push_back(error);
+		std::cout << error << std::endl;
 	}
 
 	return result;
@@ -528,24 +643,33 @@ uint64_t ReadChunk(vector<char>& buffer, uint64_t index)
 
 
 
-void OutputNotes()
+void OutputNotes(MidiSong& song)
 {
 	int last_time = 0;
 	int delta = 0;
 	std::set<int> on_notes;
 	int commands_issued_count = 0;
+	float time_scale = 0.5f;
 
-	std::sort(gEvents.begin(), gEvents.end(), 
+	println("------------------ Outputing song ---------------");
+	std::vector<MidiEvent> all_events;
+	for (auto& track : song.mTracks)
+	{
+		println("track {}: {} events", track.mName, track.mEvents.size());
+		all_events.insert(all_events.begin(), track.mEvents.begin(), track.mEvents.end());
+	}
+
+	std::sort(all_events.begin(), all_events.end(), 
 		[](const MidiEvent& e1, const MidiEvent& e2) 
 		{ 
 			return (e1.mTime < e2.mTime) || ((e1.mTime == e2.mTime) && (e1.mTrack < e2.mTrack)); 
 		});
 
-	for (MidiEvent& event : gEvents)
+	for (MidiEvent& event : all_events)
 	{
 		//if (event.mTrack < 3 || event.mTrack > 4)
-		if (event.mTrack != 3)
-			continue;
+		//if (event.mTrack != 3)
+		//	continue;
 
 		switch (event.mEventType)
 		{
@@ -557,7 +681,7 @@ void OutputNotes()
 				last_time = event.mTime;
 				if (delta > 0)
 				{
-					cout << "  { " << delta;
+					cout << "  { " << (int)(time_scale * delta);
 
 					for (int i : on_notes)
 					{
@@ -577,7 +701,7 @@ void OutputNotes()
 			last_time = event.mTime;
 			if (delta > 0)
 			{
-				cout << "  { " << delta;
+				cout << "  { " << (int)(time_scale * delta);
 
 				for (int i : on_notes)
 				{
@@ -593,6 +717,9 @@ void OutputNotes()
 
 			on_notes.erase(event.mKey);
 			break;
+		default:
+			// uh... do nothing?
+			break;
 		}
 
 	}
@@ -601,8 +728,11 @@ void OutputNotes()
 }
 
 
-void ReadMidi(std::string fname)
+
+MidiSong ReadMidi(std::string fname)
 {
+	MidiSong song (fname);
+
 	// first, read the entire file into a buffer.
 	uint64_t sz = std::filesystem::file_size(fname);
 	vector<char> buffer(sz);
@@ -613,10 +743,10 @@ void ReadMidi(std::string fname)
 	uint64_t index = 0;
 	do
 	{
-		index = ReadChunk(buffer, index);
+		index = ReadChunk(song, buffer, index);
 	} while (index < sz);
 
-	OutputNotes();
+	return song;
 }
 
 
@@ -629,14 +759,17 @@ int main(int argc, char** argv)
 	if (argc == 2)
 		filename = argv[1];
 	else
-	{	
-		//filename = "jingle-bells-keyboard.mid";
-		filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\Ultima IV\\u4wander.mid";
+	{
+		//filename = "jingle-bells-keyboard.mid"; 
+		//filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\Ultima IV\\u4wander.mid";
+		filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\King Crimson\\Frame by Frame.mid";
 	}
 
 	InitializeFreqsTable();
 	//PrintP65NoteTable();
 	std::cout << std::endl;
 
-	ReadMidi(filename);
+	MidiSong song = ReadMidi(filename);
+
+	OutputNotes(song);
 }
