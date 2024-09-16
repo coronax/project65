@@ -179,6 +179,9 @@ ptr1h	= $31
 ptr2	= $32
 ptr2h	= $33
 
+iptr1   = $34 ; a pointer or temp to use in interrupt routines
+iptr1h  = $35
+
 ; Also, the XModem routine uses some variables from
 ; $38 through $3f.
 
