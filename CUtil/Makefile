@@ -1,5 +1,5 @@
 
-all: cp.prg ls.prg rm.prg rmdir.prg
+all: cp.prg ls.prg rm.prg rmdir.prg date.prg
 
 cp.prg: cp.c
 	cl65 -t p65 cp.c -o cp.prg
@@ -12,6 +12,9 @@ rm.prg: rm.c
 
 rmdir.prg: bsd_rmdir.c
 	cl65 -t p65 bsd_rmdir.c -o rmdir.prg
+
+date.prg: date.c
+	cl65 -t p65 date.c -o date.prg
 
 clean:
 	del *.prg
