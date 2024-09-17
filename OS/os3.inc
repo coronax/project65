@@ -30,9 +30,12 @@
 .pc02			; allow 65c02 instructions
 .feature string_escapes
 
-CR		=        $0d                ; carriage return
-LF      =        $0a                ; line feed
-ESC     =        $1b                ; ESC to exit
+BEL             = $07	; bell
+TAB             = $09
+LF              = $0a   ; line feed
+ESC             = $1b   ; ESC to exit
+CR              = $0d	; carriage return
+QUOTE           = $22	; Quote mark
 
 ;Device Filemode values - These match the values used by CC65's fcntl.inc.
 O_RDONLY        = $01
@@ -124,6 +127,7 @@ argv4L          = $0289		; Final element of argv should be NULL.
 argv4H          = $028a
 argv_end        = $028b
 program_ret     = $028b		; return code of called program
+arg_is_quoted   = $028f     ; temp variable for argv parsing.
 DEVTAB          = $0290   	; This is the devtab we actually use. 96 bytes, up to $02f0
 NEXT_UNUSED     = $02F0		; One past end of DEVTAB
 

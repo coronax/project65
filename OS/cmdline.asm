@@ -63,10 +63,10 @@
         ; skip whitespace
 skipwhitespace:
         lda buffer,y
-        beq done_ws         ; found end of string
+        beq done_tokenize    ; found end of string
         cmp #' '
         beq continue_ws
-        cmp #$9             ; tab
+        cmp #TAB             ; tab
         beq continue_ws
         bra done_ws
 continue_ws:
@@ -75,6 +75,14 @@ continue_ws:
 done_ws:
 
         lda buffer,y
+        stz arg_is_quoted
+        cmp #QUOTE          ; check for opening quote
+        bne not_quoted
+        sta arg_is_quoted   ; set arg_is_quoted nonzero
+        iny                 ; and skip ahead to next char
+        lda buffer,y
+not_quoted:
+
         beq done_tokenize   ; we're at the end of the buffer
 
         ; OK. we're at the start of a token. we need to save the value of
@@ -95,6 +103,10 @@ done_ws:
         inc ptr2            ; point ptr2 at the next argv L val
 
         ; Now we need to scan until we find whitespace or eol
+        ; non-quote version
+        lda arg_is_quoted  
+        bne scantokenforquote
+
 scantoken:
         lda buffer,y
         beq done_tokenize   ; if we hit end-of-string, we're just done
@@ -104,6 +116,15 @@ scantoken:
         beq endoftoken
         iny
         bra scantoken
+
+scantokenforquote:
+        lda buffer,y
+        beq done_tokenize   ; if we hit end-of-string, we're just done
+        cmp #QUOTE
+        beq endoftoken
+        iny
+        bra scantokenforquote
+
 endoftoken:
         lda #0              
         sta (ptr1),y        ; write an end of string to end of token
