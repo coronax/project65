@@ -158,32 +158,41 @@ scratchbuffer = $0480   ; Scratch buffer for OS commands. Used for handling file
 ; And cc65 can use the block at $5b for its zero-page stuff.
 
 ; zero-page elements of TTY driver
-wr_ttybuffer = $0020		; ttybuffer write cursor
-rd_ttybuffer = $0021		; ttybuffer read cursor
-cl_ttybuffer = $0022		; ttybuffer start of current line
+wr_ttybuffer = $20		; ttybuffer write cursor
+rd_ttybuffer = $21		; ttybuffer read cursor
+cl_ttybuffer = $22		; ttybuffer start of current line
 
-tmp1 = $0023
-tmp2 = $0024
-tmp3 = $0025
-tmp4 = $0026
+tmp1 = $23
+tmp2 = $24
+tmp3 = $25
+tmp4 = $26
 
 ; zero-page elements of IO/serial driver
-wr_rbuffer 		= $0027		; Max3100 read buffer write index
-rd_rbuffer 		= $0028
-wr_wbuffer 		= $0029
-rd_wbuffer 		= $002a		; Max3100 write buffer read index
-spi_readbuffer	= $002b		; Used by spibyte
-spi_writebuffer	= $002c		; Used by spibyte
-statusbyte		= $002d		; Used by Max3100 code & other SPI drivers
-max3100_rts_status = $002e
-max3100_sending = $002f		; Used during Max3100_SendRecv
+wr_rbuffer 		= $27		; Max3100 read buffer write index
+rd_rbuffer 		= $28
+wr_wbuffer 		= $29
+rd_wbuffer 		= $2a		; Max3100 write buffer read index
+spi_readbuffer	= $2b		; Used by spibyte
+spi_writebuffer	= $2c		; Used by spibyte
+statusbyte		= $2d		; Used by Max3100 code & other SPI drivers
+max3100_rts_flag = $2e		; The RTS Flag value is $02 when it is enabled, 
+							; meaning the remote side is allowed to send,
+							; and 0 otherwise.
+max3100_sending = $2f		; Used during Max3100_SendRecv
+
+; IO/Serial constants:
+SERIAL_RTS_ENABLE 	= $02
+SERIAL_RTS_DISABLE 	= $00
+SERIAL_BAUD_9600 	= %00001010
+SERIAL_BAUD_19200	= %00001001
+SERIAL_BAUD_38400	= %00001000
 
 ptr1	= $30
 ptr1h	= $31
 ptr2	= $32
 ptr2h	= $33
 
-iptr1   = $34 ; a pointer or temp to use in interrupt routines
+iptr1   = $34 ; a pointer or temp reserved for use in interrupt routines
 iptr1h  = $35
 
 ; Also, the XModem routine uses some variables from

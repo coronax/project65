@@ -94,6 +94,19 @@
 		RMB7 wrptr buffername
 .endmacro
 
+.if 0
+; version without rmb7 - larger but faster
+.macro WRITEBUFFER buffername
+		LDX wrptr buffername
+		STA buffername, X
+		
+		txa
+		inc
+		and #$7F
+		sta wrptr buffername
+.endmacro
+.endif
+
 ; Reads from the read buffer to A.
 ; doesn't check if there's available data.
 ; Modifies AX
@@ -103,6 +116,21 @@
 		INC rdptr buffername
 		RMB7 rdptr buffername
 .endmacro
+
+.if 0
+; Reads from the read buffer to A.
+; doesn't check if there's available data.
+; Modifies AX
+.macro READBUFFER buffername
+		LDX rdptr buffername
+		LDA buffername, X
+		inx
+		cpx #80
+		bne l1
+		ldx #0
+l1:		stx wrptr buffername
+.endmacro
+.endif
 
 ; Returns count of items in buffer in A
 ; Uses A
@@ -118,6 +146,9 @@
 _read_char = SERIAL_GETC	
 _print_char = SERIAL_PUTC
 
+; Should we be calling checkrts _before_ sendrecv? This changes the math 
+; for buffer sizes by one byte, but it means the change takes affect
+; sooner. Or maybe just do it during sendrecv, if something was recvd?
 
 ; wrapper around putting a character into the write buffer.
 ; busy waits if the buffer is full.  Note that for EhBasic,
@@ -126,28 +157,25 @@ _print_char = SERIAL_PUTC
 .proc SERIAL_PUTC
 		pha
 		phx
-		pha			; store A because COUNTBUFFER will overwrite
+		pha			; store A AGAIN because COUNTBUFFER will overwrite
 wait:
 		sei
 		COUNTBUFFER wbuffer
 		cli			; re-enable IRQ in case we need to wait
 		cmp #$30	; high water mark for write buffer.
 		bpl wait
-		pla
-		;pha			; store A again because we need to return it.
+		pla			; Pull 1st A off
 		sei
 		WRITEBUFFER wbuffer
-		; if transmit interrupts are off, turn them back on
+		; Call SendRecv here, otherwise our timer interrupt frequency limits
+		; us to sending 100 bytes per second (unless we're also receving read
+		; interrupts).
 		jsr Max3100_SendRecv
 		jsr checkrts
-		plx
-		pla			; return the character we wrote.
+		plx			; Pull AX off stack.
+		pla			; Always return the character we wrote in AX.
 		cli
-		;plx
-;		brk
-		
-		; for EHBasic aren't I going to have to guarantee that
-		; the put character is still in A?
+
 		rts
 .endproc
 
@@ -161,15 +189,19 @@ wait:
 		beq empty
 
 		; Check space in rbuffer. If count is equal to the low
-		; water mark and rts is disabled (rts_status is FF) then
-		; we need to enable rts and clear rts_status
+		; water mark and rts is disabled (rts flag is 00) then
+		; we need to set it to enabled.
 		cmp #$10
 		bpl read_char
-		lda max3100_rts_status
-		beq read_char
+		lda max3100_rts_flag
+		bne read_char	; if already enabled, nevermind.
 
-		; Ok, we need to send a command to enable rts
-		stz max3100_rts_status
+		; We need to send a command to enable rts & allow sends.
+		; Can we just set the flag and do the IO during timer IRQ?
+		; No, because timer IRQ only fires SendRecv if there's a
+		; char in the output buffer.
+		lda #SERIAL_RTS_ENABLE
+		sta max3100_rts_flag
 		jsr Max3100_SendRecv
 
 		; and then we can go ahead and read the character
@@ -229,22 +261,20 @@ done:
 .endproc
 
 
-
+; Should this just be part of Max3100_SendRecv?
 .proc checkrts
 		; Check space in rbuffer. If count is equal to the high water
-		; mark and rts is enabled (rts_status is 0), then we need to
-		; set rts status.
-		lda max3100_rts_status
-		bne done	 		; already disabled
+		; mark and rts is SERIAL_RTS_ENABLE, then we need to
+		; disiable RTS
+		lda max3100_rts_flag
+		beq done	 		; already disabled
 		COUNTBUFFER rbuffer
 		cmp #$20				; compare to high-water mark
 		bmi done
 
-		; to disable /RTS, set rts_status to nonzero and then do
-		; a send/recv cycle.
-		lda #$ff
-		sta max3100_rts_status
-		;jsr Max3100_SendRecv
+		; to disable /RTS, set rts_flag to zero. Takes affect during next
+		; SendRecv.
+		stz max3100_rts_flag
 done:	
 		rts
 .endproc
@@ -313,8 +343,8 @@ io_flush:
 ; Initialize Max3100 via SPI
 ;=============================================================================
 .proc Max3100_Init
-		; toggle slave select - and include a full toggle just
-		; in case the slave select wasn't set correctly to
+		; toggle device select - and include a full toggle just
+		; in case the device select wasn't set correctly to
 		; begin with.
 		lda 	VIA_DATAB
 		ora		#2
@@ -327,19 +357,16 @@ io_flush:
 		jsr		spibyte
 
 		; send second 8 bits
-		lda 	#%00001010 ; 9600 baud
-		;lda 	#%00001001 ; 19200 baud
-		;lda 	#%00001000 ; 38400 baud
+		lda 	#SERIAL_BAUD_9600
 		jsr 	spibyte
 
-		lda #%011111010		; turn off slave select
+		lda #%011111010		; turn off device select
 		sta VIA_DATAB
 
 		; enable RTS (allow the other side to send).
-		stz max3100_rts_status
+		lda #SERIAL_RTS_ENABLE
+		sta max3100_rts_flag
 		jsr Max3100_SendRecv
-		;lda #%10000110 ; rts is 1 when ok to send. fake write data to set rts low
-		;jsr Max3100_XmitCommand
 		
 		rts
 .endproc
@@ -405,50 +432,52 @@ rm_notset_message:
 
 		COUNTBUFFER wbuffer	; any characters waiting to be sent?
 		beq empty_wbuffer
-		lda #$ff
+		lda #$40			; matches T flag in status byte
 		sta max3100_sending ; remember that we want to send a byte
 		lda #%10000000		; write command with /TE enabled
 		bra check_rts
 empty_wbuffer:
 		stz max3100_sending
 		lda #%10000100		; write command with /TE disabled
+check_rts:
 
-check_rts:		
-		bbs1 max3100_rts_status, send_command ; rts status: 0 low, 1 hi
-		ora #%00000010		; set rts enabled (low) if rts_status is 0
-				
-send_command:
+		ora max3100_rts_flag
+
 		; send write command
 		jsr spibyte
 
 		; save the status byte we just read
 		sta statusbyte
 
-		; if max3100_sending is nonzero and statusbyte bit 6 is 1,
-		; then we need to grab a data byte from the write buffer
-		lda #$cc	; dummy value for debugging
-		bbr7 max3100_sending, send_data
-		lda #$dd	; different dummy value for debugging
-		bbr6 statusbyte, send_data
+		; If the T (transmit buffer empty) flag of statusbyte is set and
+		; max3100_sending is set, we need to grab a byte from the write
+		; buffer to send.
+		;lda #$cc	; dummy value for debugging
+		and max3100_sending ; $00 or $40, AND with statusbyte
+		beq send_data
+
 		READBUFFER wbuffer	; a real value to be transmitted.
 
 send_data:		
-		; send 8 bits of char data, real or dummy
+		; send & recv 8 bits of char data, real or dummy
 		jsr spibyte
-		tay
+		tay					; stash received byte for later
 			
 		lda #%01111010		; turn off Max3100 chip select
 		sta VIA_DATAB
 
 		; if bit 7 of statusbyte is 1, then we read a
 		; byte and need to put it into the fifo
-		clc
-;		bbr7 statusbyte, test_send
-		bit statusbyte
+		clc					; set for the case where we didn't read
+		bit statusbyte		; test if we read a byte
 		bpl test_send
-		tya 			; this feels like a kludge...
-		WRITEBUFFER rbuffer 	; read a byte, stick in rbuffer
-		sec				; set carry if we read a byte
+		; Our rts handling should have guaranteed that there's room in the
+		; read buffer, but if not there isn't really anything we can do 
+		; about it...
+		tya 				; grab the stashed received byte
+		WRITEBUFFER rbuffer ; and add it to readbuffer
+		sec					; set carry to show byte read. 
+							; * Do we actually care?
 test_send:
 
 		ply					; restore x, y

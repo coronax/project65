@@ -1273,6 +1273,8 @@ prompt:
 		phx
 		phy
 
+		; All hardware IRQs come to us through the 6522. Its IFR register
+		; tells us the cause of the interrupt.
 		lda VIA_IFR
 		rol ; irq flag
 		bcc max3100_irq	; not really 6522 - max3100
