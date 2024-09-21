@@ -65,9 +65,6 @@
 .code
 ;.byte "io.asm"
 
-.pc02
-
-		
 
 
 
@@ -87,14 +84,16 @@
 ; Write A to the write buffer
 ; Note that this doesn't test if there's enough room.
 ; Modifies X
+.if 0
 .macro WRITEBUFFER buffername
 		LDX wrptr buffername
 		STA buffername, X
 		INC wrptr buffername
 		RMB7 wrptr buffername
 .endmacro
+.endif
 
-.if 0
+.if 1
 ; version without rmb7 - larger but faster
 .macro WRITEBUFFER buffername
 		LDX wrptr buffername
@@ -110,14 +109,16 @@
 ; Reads from the read buffer to A.
 ; doesn't check if there's available data.
 ; Modifies AX
+.if 0
 .macro READBUFFER buffername
 		LDX rdptr buffername
 		LDA buffername, X
 		INC rdptr buffername
 		RMB7 rdptr buffername
 .endmacro
+.endif
 
-.if 0
+.if 1
 ; Reads from the read buffer to A.
 ; doesn't check if there's available data.
 ; Modifies AX
@@ -125,10 +126,10 @@
 		LDX rdptr buffername
 		LDA buffername, X
 		inx
-		cpx #80
+		cpx #$80
 		bne l1
 		ldx #0
-l1:		stx wrptr buffername
+l1:		stx rdptr buffername
 .endmacro
 .endif
 
@@ -146,14 +147,16 @@ l1:		stx wrptr buffername
 _read_char = SERIAL_GETC	
 _print_char = SERIAL_PUTC
 
-; Should we be calling checkrts _before_ sendrecv? This changes the math 
-; for buffer sizes by one byte, but it means the change takes affect
-; sooner. Or maybe just do it during sendrecv, if something was recvd?
 
-; wrapper around putting a character into the write buffer.
-; busy waits if the buffer is full.  Note that for EhBasic,
-; the character we wrote needs to still be in A when we
-; return.
+
+;=============================================================================
+; SERIAL_PUTC
+; PUTC Implementation for serial/Max3100 driver.
+; Places the character in A into the send buffer. Busy waits if that buffer 
+; is full.
+; Modifies: None. The character written is returned in A in order to 
+; satisfy EhBasic.
+;=============================================================================
 .proc SERIAL_PUTC
 		pha
 		phx
@@ -171,7 +174,6 @@ wait:
 		; us to sending 100 bytes per second (unless we're also receving read
 		; interrupts).
 		jsr Max3100_SendRecv
-		jsr checkrts
 		plx			; Pull AX off stack.
 		pla			; Always return the character we wrote in AX.
 		cli
@@ -181,7 +183,14 @@ wait:
 
 
 
-; wrapper around getting a character from the receive buffer
+;=============================================================================
+; SERIAL_GETC
+; GETC Implementation for serial/Max3100 driver.
+; If a character is available in the receive buffer, return it & set carry.
+; If no character is available, clear carry.
+; This function may do a SendRecv action if it is time to re-enable RTS.
+; Modifies: A
+;=============================================================================
 .proc SERIAL_GETC
 		phx
 		sei	; stop interrupts for a moment
@@ -228,17 +237,19 @@ empty:
 ; Max3100_IRQ
 ; Interrupt Service Routine for Max3100 UART
 ;=============================================================================
+Max3100_IRQ = Max3100_SendRecv
+.if 0
 .proc Max3100_IRQ
 		; This interrupt came from the MAX3100 UART.
 		; It indicates that there is data to be read.
 
-		jsr Max3100_SendRecv
-		bcc done		; if we read a character, check space in buffer
-		jmp checkrts	; and RTS flag
+		jmp Max3100_SendRecv
+		;bcc done		; if we read a character, check space in buffer
+		;jmp checkrts	; and RTS flag
 done:
-		rts
+		;rts
 .endproc
-
+.endif
 
 
 ;=============================================================================
@@ -253,31 +264,11 @@ done:
 		; smart handling of the 3100's transmit interrupt.
 		COUNTBUFFER wbuffer
 		beq done
-		jsr Max3100_SendRecv
-		bcc done
-		jmp checkrts
+		jmp Max3100_SendRecv
 done:
 		rts
 .endproc
 
-
-; Should this just be part of Max3100_SendRecv?
-.proc checkrts
-		; Check space in rbuffer. If count is equal to the high water
-		; mark and rts is SERIAL_RTS_ENABLE, then we need to
-		; disiable RTS
-		lda max3100_rts_flag
-		beq done	 		; already disabled
-		COUNTBUFFER rbuffer
-		cmp #$20				; compare to high-water mark
-		bmi done
-
-		; to disable /RTS, set rts_flag to zero. Takes affect during next
-		; SendRecv.
-		stz max3100_rts_flag
-done:	
-		rts
-.endproc
 
 
 ;=============================================================================
@@ -423,7 +414,7 @@ rm_notset_message:
 ;    b) otherwise sends with TE high (transmit buffer disabled)
 ;    b) tries to read a byte.
 ; Sends the character in accumulator out the spi port.
-; Sets carry flag if a byte was read, so we know to check rts status
+; ONLY call with interrupts disabled!
 ;=============================================================================
 .proc Max3100_SendRecv
 		pha
@@ -468,18 +459,24 @@ send_data:
 
 		; if bit 7 of statusbyte is 1, then we read a
 		; byte and need to put it into the fifo
-		clc					; set for the case where we didn't read
 		bit statusbyte		; test if we read a byte
-		bpl test_send
+		bpl done
 		; Our rts handling should have guaranteed that there's room in the
 		; read buffer, but if not there isn't really anything we can do 
 		; about it...
 		tya 				; grab the stashed received byte
 		WRITEBUFFER rbuffer ; and add it to readbuffer
-		sec					; set carry to show byte read. 
-							; * Do we actually care?
-test_send:
 
+		; Having written to the buffer, we need to check if we hit the high-
+		; water mark:
+		COUNTBUFFER rbuffer
+		cmp #$20				; compare to high-water mark
+		bmi done
+		; to disable /RTS, set rts_flag to zero. Takes affect during next
+		; SendRecv.
+		stz max3100_rts_flag
+
+done:
 		ply					; restore x, y
 		plx
 		pla
@@ -488,9 +485,13 @@ test_send:
 
 
 
-;; spibyte
-;; Sends the byte in writebuffer and receives a
-;; byte into readbuffer.
+;=============================================================================
+; spibyte
+;=============================================================================
+; Sends the byte in A to the SPI port. Simultaneously reads a byte, which is
+; returned in A (and in spi_readbuffer).
+; ONLY call with interrupts disabled!
+;=============================================================================
 .proc spibyte
 		sta spi_writebuffer
 .repeat 8
