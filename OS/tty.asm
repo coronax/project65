@@ -32,7 +32,7 @@
 ; with a simple raw mode with the option to echo characters back to the
 ; output, which is what I most need just at the moment.
 
-.import dev_getc, dev_putc, setdevice, sendchar
+.import dev_getc, dev_putc, dev_ioctl, setdevice, sendchar
 .export TTY_IOCTL, TTY_OPEN, TTY_CLOSE, TTY_GETC
 
 .include "os3.inc"
@@ -110,61 +110,96 @@
 		AND #%01111111
 .endmacro
 
-IO_INIT        = 0
-IO_ECHO_ON     = 32
-IO_ECHO_OFF    = 33
-IO_RAW_MODE    = 34
-IO_COOKED_MODE = 35
+;IO_INIT        = 0
+;IO_ECHO_ON     = 32
+;IO_ECHO_OFF    = 33
+;IO_RAW_MODE    = 34
+;IO_COOKED_MODE = 35
 
 ;=============================================================================
 ; TTY_IOCTL
 ; IO Control for tty driver
 ;=============================================================================
 .proc TTY_IOCTL
-	cmp #IO_INIT
-	beq init
-        cmp #IO_ECHO_ON
+    	cmp #IO_INIT
+	    beq init
+        cmp #IO_FLUSH
+        beq flush
+        cmp #IO_AVAILABLE
+        beq available
+        cmp #IO_TTY_ECHO_ON
         beq echo_on
-        cmp #IO_ECHO_OFF
+        cmp #IO_TTY_ECHO_OFF
         beq echo_off
-        cmp #IO_RAW_MODE
+        cmp #IO_TTY_RAW_MODE
         beq raw_mode
-        cmp #IO_COOKED_MODE
+        cmp #IO_TTY_COOKED_MODE
         beq cooked_mode
 error:
-	; This would probably be EINVAL if we had a way to set errno
-	lda #$FF
-	tax
-	rts
+    	; This would probably be EINVAL if we had a way to set errno
+	    lda #$FF
+	    tax
+	    rts
 
 init:   jmp TTY_INIT
+
+flush:  ; Forwarded to underlying serial driver
+        pha                         ; stash op
+fwd_ioctl:
+        lda TTY + TTY_BLOCK::IN_DEV
+        jsr setdevice
+        pla                         ; retrieve op
+        jsr dev_ioctl
+        sta TTY + TTY_BLOCK::TMPA   ; stash return value
+        stx TTY + TTY_BLOCK::TMPX
+        lda TTY + TTY_BLOCK::SELF_DEV   ; restore original device
+        jsr setdevice
+        lda TTY + TTY_BLOCK::TMPA   ; stash return value
+        ldx TTY + TTY_BLOCK::TMPX
+        rts
+
+available:
+        pha
+        lda TTY + TTY_BLOCK::MODE
+        bne avail_for_cooked
+        ; for raw mode, forward to underlying serial driver w op on stack
+        ;pha
+        bra fwd_ioctl
+avail_for_cooked:
+        pla ; take op off stack
+        COUNTAVAIL ttybuffer
+        ldx #0
+        rts
 
 echo_on:
         lda #1
         sta TTY + TTY_BLOCK::ECHO
-        lda #0
+ret_ok: lda #0
         tax
         rts
 
 echo_off:
         stz TTY + TTY_BLOCK::ECHO
-        lda #0
-        tax
-        rts
+        bra ret_ok
+        ;lda #0
+        ;tax
+        ;rts
 
 raw_mode:
         stz TTY + TTY_BLOCK::MODE       ; 0 for raw mode
-        lda #0
-        tax
-        rts
+        bra ret_ok
+        ;lda #0
+        ;tax
+        ;rts
 
 cooked_mode:
         lda #1                          ; 1 for cooked mode
         sta TTY + TTY_BLOCK::MODE
         INITBUFFER ttybuffer            ; throw out previously buffered IO
-        lda #0
-        tax
-        rts
+        bra ret_ok
+        ;lda #0
+        ;tax
+        ;rts
 .endproc
 
 
@@ -238,9 +273,9 @@ not_eof:
         jsr setdevice
         lda TTY + TTY_BLOCK::TMPA
         jsr dev_putc                    ; Echo the character to output device.
-        cmp #13 ;'\r'                   ; When we output a carriage return, 
+        cmp #CR                         ; When we output a carriage return, 
         bne return_w_carry              ; we insert a newline afterwards.
-        lda #10 ;'\n'
+        lda #LF
         jsr dev_putc
 
 return_w_carry:
@@ -296,9 +331,19 @@ have_room_1:
 skip1:
         sta TTY + TTY_BLOCK::TMPA       ; Save newly-read character
         stx TTY + TTY_BLOCK::TMPX
-        cpx #$FF                        ; Is new character an EOF?
-        bne not_eof2
-        stx TTY + TTY_BLOCK::EOF  ; mark that we've hit EOF
+        cpx #$FF                        ; -1 is EOF
+        beq is_eof
+        cmp #CTRL_D                     ; Ctrl-d is also EOF
+        bne not_eof2            
+is_eof:
+        stx TTY + TTY_BLOCK::EOF    ; mark that we've hit EOF
+                                    ; CJ BUG Should we also advance CL here?
+                                    ; THUS:
+        lda #10                 ; Write a \n to the buffer to indicate eol.
+        WRITEBUFFER ttybuffer   ; Do we want an echo? maybe we could just jump
+        lda wr_ttybuffer        ; to handle cr?
+        sta cl_ttybuffer        ; advance the start of 'current' line to after the CR
+
         jmp return_char
 not_eof2:
 

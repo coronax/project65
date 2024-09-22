@@ -276,10 +276,12 @@ done:
 ; IO Control for serial driver
 ;=============================================================================
 .proc SERIAL_IOCTL
-		cmp #0
+		cmp #IO_INIT
 		beq SERIAL_INIT
-		cmp #1
+		cmp #IO_FLUSH
 		beq io_flush
+		cmp #IO_AVAILABLE
+		beq io_available
 error:
 		; Unidentified command value. return EINVAL.
 		lda #P65_EINVAL
@@ -288,6 +290,12 @@ error:
 io_flush:
 		COUNTBUFFER wbuffer
 		bne io_flush
+		lda #0
+		tax
+		rts
+io_available:
+		COUNTBUFFER rbuffer
+		ldx #0
 		rts
 .endproc
 

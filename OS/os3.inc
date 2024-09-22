@@ -36,6 +36,7 @@ LF              = $0a   ; line feed
 ESC             = $1b   ; ESC to exit
 CR              = $0d	; carriage return
 QUOTE           = $22	; Quote mark
+CTRL_D			= $04
 
 ;Device Filemode values - These match the values used by CC65's fcntl.inc.
 O_RDONLY        = $01
@@ -231,8 +232,27 @@ VIA_TIMER1_CH	= VIA_ADDRESS + $5		; timer 1 high-order counter
 VIA_TIMER1_LL	= VIA_ADDRESS + $6		; timer 1 low-order latch
 VIA_TIMER1_LH	= VIA_ADDRESS + $7		; timer 1 high-order latch
 
+
+;=============================================================================
+; ioctl values
+;=============================================================================
+IO_INIT				= 0
+IO_FLUSH			= 1
+IO_AVAILABLE		= 2		; Returns # bytes available with blocking.
+
+IO_SER_RATE			= 32	; not implemented yet
+
+IO_TTY_ECHO_ON		= 32
+IO_TTY_ECHO_OFF		= 33
+IO_TTY_RAW_MODE		= 34
+IO_TTY_COOKED_MODE	= 35
+
+
+;=============================================================================
 ; P65 errno values. These are based off the cc65 errno values, but with
 ; bit 7 set so they're all negative values (except EOK).
+;=============================================================================
+
 P65_EOK      =   0
 P65_ENOENT   =   $80 |  1
 P65_ENOMEM   =   $80 |  2
