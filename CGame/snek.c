@@ -11,12 +11,17 @@
 // Rather than messing about with translating indices, I think I'm okay with
 // just allocating an extra unused column & row 0.
 
+// Field dimensions here include the borders, which are in columns 1 and 60
+// and rows 1 and 24.
+#define FIELD_X 60
+#define FIELD_Y 24
+
 // Annotations in the field:
 //  $00 - clear
 //  $FF - wall segments
 //  'X' - food
 //  $01 to $04 - directional map of the snake.
-unsigned char field[61][25];
+unsigned char field[FIELD_X + 1][FIELD_Y + 1];
 
 int score = 0;
 
@@ -48,8 +53,8 @@ void PlaceTarget()
     int target_x, target_y;
     do
     {
-        target_x = 2 + ((int)rand())%58;
-        target_y = 2 + ((int)rand())%22;
+        target_x = 2 + ((int)rand())%(FIELD_X-2);
+        target_y = 2 + ((int)rand())%(FIELD_Y-2);
     }
     while (field[target_x][target_y] != 0);
     textcolor(11);
@@ -60,50 +65,57 @@ void PlaceTarget()
 
 void __fastcall__ bzero (void* ptr, size_t n);
 
+
+// Adds amount to score & updates the display
+void DisplayScore ()
+{
+    gotoxy (73, 12);
+    textcolor(15);
+    cprintf ("%3d", score);
+}
+
+
+
 void InitPlayfield()
 {
     int i;
     bzero (field, 61*25);
     clrscr();
     cursor(0);
-    //revers(1);
 
     textcolor(10);
-    cputsxy (64,8, "S N E K");
+    cputsxy (66,8, "S N E K");
     textcolor(7);
-    cputsxy (62,12, "Score:   0");
+    cputsxy (65,12, "Score:");
 
+    // Draw boundaries of the field
     bgcolor(7);
-    for (i = 1; i < 61; ++i)
+    for (i = 1; i <= FIELD_X; ++i)
     {
-        field[i][1] = field[i][24] = 0xFF; 
+        field[i][1] = field[i][FIELD_Y] = 0xFF; 
         //textcolor (i%16);
         //bgcolor (7);
         cputcxy (i,1,'\xb1');
-        cputcxy (i,24,'\xb1');
+        cputcxy (i,FIELD_Y,'\xb1');
     }
-    for (i = 2; i < 24; ++i)
+    for (i = 2; i < FIELD_Y; ++i)
     {
-        field[1][i] = field[60][i] = 0xFF;
+        field[1][i] = field[FIELD_X][i] = 0xFF;
         //textcolor (i%16);
         //bgcolor (7);
         cputcxy (1,i,'\xb1');
-        cputcxy (60, i, '\xb1');
+        cputcxy (FIELD_X, i, '\xb1');
     }
     bgcolor(0);
-    //revers(0);
-}
 
-// Adds amount to score & updates the display
-void AddToScore (int amount)
-{
-    score += amount;
-    gotoxy (69, 12);
-    cprintf ("%3d", score);
+    DisplayScore();
 }
 
 
-int main ()
+
+// Runs a single game of Snek.
+// Returns 0 if game ends normally, 1 if user aborts with 'q'.
+int Game()
 {
     char dir = 2; // 1 = up, then cw
     char newdir;
@@ -111,21 +123,10 @@ int main ()
     int y = 12;
     int tailx = x;
     int taily = y;
-    //int turn = 0;
-    //int target_x, target_y;
     char t;
     char bumplen = 0;
     score = 0;
-    // reset conole: treat with caution
-    // printf ("\x1b\x63");
-    //sleep(2);
 
-    srand(time(NULL));
-
-    // cgetc will only work in raw mode
-    ioctl(0, IO_TTY_RAW_MODE);
-    ioctl(0, IO_TTY_ECHO_OFF);
-    
 
     InitPlayfield();
 
@@ -139,9 +140,10 @@ int main ()
         int ch = 0;
         newdir = dir;
 
-        // If we queue instructions, we can't recover from mistakes. If we ingest
-        // all characters, we can make up for some fumble-fingeredness, but inserting
-        // multiple instructions quickly can be very timing tricky.
+        // If we queue instructions, we can't recover from mistakes. If we 
+        // ingest all characters, we can make up for some fumble-fingeredness,
+        // but inserting multiple instructions quickly can be very timing 
+        // tricky (for the player). This version chooses the latter.
         while (kbhit())
         {
             ch = cgetc();
@@ -151,7 +153,8 @@ int main ()
                     bumplen = 1;
                     break;
                 case 'q': 
-                    goto quit;
+                    //goto quit;
+                    return 1;
                     break;
                 case 'w':
                     newdir = 1;
@@ -215,20 +218,19 @@ int main ()
         else if (t == 'X')
         {
             cputcxy (x,y, '*');
-            //score += 10;
-            AddToScore (10);
+            score += 10;
+            DisplayScore ();
 
             PlaceTarget();
             bumplen = 1;
+
+            textcolor(2);
         }
         else
         {
-            printf ("BOOM!\r\n");
-            //printf ("xy == %d, %d\r\n", x, y);
-            //printf ("t == %d", (int)t);
-            //printf ("field        = %p\r\n", field);
-            //printf ("&field[x][y] = %p\r\n", &field[x][y]);
-            goto quit;
+            textcolor(9);
+            cputsxy (x-2, y, "BOOM!");
+            return 0;
         }
 
         if (bumplen)
@@ -245,14 +247,54 @@ int main ()
         msleep (100);
     }
 
+}
 
-quit:
+
+
+int main ()
+{
+    char ch;
+    int done = 0;
+
+    // Init random number generator
+    srand(time(NULL));
+
+    // cgetc will only work in raw mode
+    ioctl(0, IO_TTY_RAW_MODE);
+    ioctl(0, IO_TTY_ECHO_OFF);
+    
+    while (!done)
+    {
+        if (Game())
+            break; // user quit
+        textcolor(11);
+        cputsxy (22, 12, "G A M E   O V E R");
+        textcolor(7);
+        cputsxy (22, 14, "Play again (y/n)?");
+        for (;;)
+        {
+            ch = cgetc();
+            if (tolower(ch) == 'y')
+                break;
+            if (tolower(ch) == 'n')
+            {
+                done = 1;
+                break;
+            }
+        }
+    }
+
+
     // eat any remaining input so the console doesn't get it.
     while (kbhit())
         cgetc();
+
+    // Put console back in reasonable state. Kernel will take care of 
+    // resetting raw mode & echo.
     cursor(1);
     textcolor(7);
     bgcolor(0);
-    gotoxy (0,24);
+    gotoxy (0,FIELD_Y);
+    cputs ("\r\n");
     return 0;
 }
