@@ -88,6 +88,7 @@ tod_seconds3	= $0208
 tod_seconds4	= $0209 ; tod seconds MSB
 tod_seconds100  = $020a ; hundredths of seconds; effectively a count of clock interrupts
 
+max3100_baud    = $020b ; an index to MAX3100_BAUD_TABLE
 ;spi_readbuffer	= $020c	; Used by spibyte
 ;spi_writebuffer	= $020d	; Used by spibyte
 
@@ -240,7 +241,7 @@ IO_INIT				= 0
 IO_FLUSH			= 1
 IO_AVAILABLE		= 2		; Returns # bytes available with blocking.
 
-IO_SER_RATE			= 32	; not implemented yet
+IO_SER_RATE			= 36	; kludge-can't overlap with IO_TTY_*
 
 IO_TTY_ECHO_ON		= 32
 IO_TTY_ECHO_OFF		= 33

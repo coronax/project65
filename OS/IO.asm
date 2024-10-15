@@ -30,7 +30,7 @@
 .include "os3.inc"
 .export _print_char, _read_char ; shortcuts to print/read direct from the terminal.
 .export SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, Max3100_IRQ, Max3100_TimerIRQ
-.import _print_string
+.import _print_string, _print_hex
 
 ; Max3100 Driver 2.0
 ; This version of the Max3100 driver is interrupt-based and uses
@@ -274,6 +274,11 @@ done:
 ;=============================================================================
 ; SERIAL_IOCTL
 ; IO Control for serial driver
+; 
+; CUSTOM IOCTLs:
+;   IO_SER_RATE - new baud rate sent in ptr1. On success, returns rate in AX.
+;                 Send 0 to just query the baud rate. Returns P65_EINVAL for
+;                 an invalid baud rate.
 ;=============================================================================
 .proc SERIAL_IOCTL
 		cmp #IO_INIT
@@ -282,6 +287,8 @@ done:
 		beq io_flush
 		cmp #IO_AVAILABLE
 		beq io_available
+		cmp #IO_SER_RATE
+		beq io_ser_rate
 error:
 		; Unidentified command value. return EINVAL.
 		lda #P65_EINVAL
@@ -300,6 +307,88 @@ io_available:
 .endproc
 
 
+; get/set serial rate. This expects the new rate as an unsigned int in ptr1. 
+; Because of how the max3100 settings work, we need to map that value to/
+; from a 4-bit value using the table MAX3100_BAUD_TABLE (where the 4-bit
+; value is the table index). The current (4-bit) setting is saved in
+; max3100_baud.
+; Return values are a little wonky, but no valid baud rate has a high byte
+; of $FF, so calling code should be able to distinguish them well enough.
+.proc io_ser_rate
+		lda ptr1
+		bne do_set
+		ldx ptr1+1
+		bne do_set
+		; Arg is 0, so we just need to return current rate
+query_baud:
+		lda max3100_baud
+		asl	; mult by 2 because table is of words
+		tax
+		lda MAX3100_BAUD_TABLE,x
+		asl
+		tay
+		inx
+		lda MAX3100_BAUD_TABLE,X
+		rol
+		tax
+		tya
+		rts
+do_set:
+		clc
+		ror ptr1+1	; table entries are baud/2, so we divide by 2.
+		ror ptr1
+		ldy #32		; remember, table entries are 2 bytes
+loop:
+		cpy #0
+		beq error
+		dey
+		ldx MAX3100_BAUD_TABLE,y
+		dey
+		lda MAX3100_BAUD_TABLE,y
+		cpx ptr1+1
+		bne loop
+		cmp ptr1
+		bne loop
+		; We've found the entry we want! We need to set max3100_baud and 
+		; reinitialize the serial device.
+		tya
+		clc
+		ror
+		sta max3100_baud
+
+		sei
+		jsr Max3100_Init ; reinitialize device to set baud rate
+		cli
+		bra query_baud
+error:
+		lda #P65_EINVAL
+		ldx #$FF
+		rts
+.endproc
+
+
+.rodata
+; The values in this table are baud rates divided by 2 (so that
+; 115.2k will fit in a word). Table index is the Max3100 code
+; when using a 1.8432 MHz crystal.
+MAX3100_BAUD_TABLE:
+.word   57600
+.word	28800
+.word	14400
+.word	 7200
+.word	 3600
+.word	 1800
+.word	  900
+.word	  450
+.word	19200
+.word	 9600
+.word	 4800
+.word	 2400
+.word	 1200
+.word	  600
+.word	  300
+.word	  150
+.code
 
 ;=============================================================================
 ; SERIAL_INIT
@@ -310,6 +399,9 @@ io_available:
 		INITBUFFER rbuffer
 		INITBUFFER wbuffer
 		
+		lda 	#SERIAL_BAUD_19200	; Set default baud rate
+		sta		max3100_baud
+
         ; set up parallel port
         lda #$77		; reading on pins 3 (old miso) and 7 (new miso)
         sta VIA_DDRB
@@ -355,8 +447,8 @@ io_available:
 		lda 	#%11001100	; write config; enable read buffer irq
 		jsr		spibyte
 
-		; send second 8 bits
-		lda 	#SERIAL_BAUD_9600
+		; send baud rate in second 8 bits
+		lda 	max3100_baud
 		jsr 	spibyte
 
 		lda #%011111010		; turn off device select

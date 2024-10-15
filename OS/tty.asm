@@ -110,11 +110,6 @@
 		AND #%01111111
 .endmacro
 
-;IO_INIT        = 0
-;IO_ECHO_ON     = 32
-;IO_ECHO_OFF    = 33
-;IO_RAW_MODE    = 34
-;IO_COOKED_MODE = 35
 
 ;=============================================================================
 ; TTY_IOCTL
@@ -135,6 +130,8 @@
         beq raw_mode
         cmp #IO_TTY_COOKED_MODE
         beq cooked_mode
+        cmp #IO_SER_RATE
+        beq ser_rate
 error:
     	; This would probably be EINVAL if we had a way to set errno
 	    lda #$FF
@@ -157,7 +154,9 @@ fwd_ioctl:
         lda TTY + TTY_BLOCK::TMPA   ; stash return value
         ldx TTY + TTY_BLOCK::TMPX
         rts
-
+ser_rate:
+        pha ; forward to underlying serial driver
+        bra fwd_ioctl
 available:
         pha
         lda TTY + TTY_BLOCK::MODE
@@ -181,25 +180,16 @@ ret_ok: lda #0
 echo_off:
         stz TTY + TTY_BLOCK::ECHO
         bra ret_ok
-        ;lda #0
-        ;tax
-        ;rts
 
 raw_mode:
         stz TTY + TTY_BLOCK::MODE       ; 0 for raw mode
         bra ret_ok
-        ;lda #0
-        ;tax
-        ;rts
 
 cooked_mode:
         lda #1                          ; 1 for cooked mode
         sta TTY + TTY_BLOCK::MODE
         INITBUFFER ttybuffer            ; throw out previously buffered IO
         bra ret_ok
-        ;lda #0
-        ;tax
-        ;rts
 .endproc
 
 
