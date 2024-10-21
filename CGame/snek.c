@@ -113,6 +113,24 @@ void InitPlayfield()
 
 
 
+char OppositeDir (char d)
+{
+    switch (d)
+    {
+    case 1:
+        return 3;
+    case 2: 
+        return 4;
+    case 3:
+        return 1;
+    case 4:
+        return 2;
+    default:
+        return 1; // Never return an invalid direction.
+    }
+}
+
+
 // Runs a single game of Snek.
 // Returns 0 if game ends normally, 1 if user aborts with 'q'.
 int Game()
@@ -203,7 +221,7 @@ int Game()
         
         // let's not blow ourselves up by accidentally hitting the exact
         // opposite of our current direction:
-        if (dir != (newdir+2)%4)
+        if (newdir != OppositeDir(dir))
             dir = newdir;
 
         field[x][y] = dir;
@@ -222,7 +240,7 @@ int Game()
             DisplayScore ();
 
             PlaceTarget();
-            bumplen = 1;
+            bumplen = 2; // controls how many spaces the tail grows by
 
             textcolor(2);
         }
@@ -233,8 +251,8 @@ int Game()
             return 0;
         }
 
-        if (bumplen)
-            bumplen = 0;
+        if (bumplen > 0)
+            --bumplen;
         else
         {
             // Clear last tail element
