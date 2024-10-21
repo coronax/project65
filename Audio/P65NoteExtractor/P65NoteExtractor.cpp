@@ -30,6 +30,13 @@
 // This program reads a MIDI file and tries to output a data structure that
 // can be used by the Project:65 audio test program.
 //
+// Resources:
+//
+// http://www.music.mcgill.ca/~ich/classes/mumt306/StandardMIDIfileformat.html
+//
+// Regarding Note On events with 0 velocity working as Note Offs:
+// https://stackoverflow.com/questions/43321950/synthesia-plays-well-midi-file-without-any-note-off-event
+//
 
 #include <algorithm>
 #include <format>
@@ -42,6 +49,7 @@
 
 using std::byte;
 using std::format;
+using std::print;
 using std::println;
 using std::string;
 using std::vector;
@@ -435,11 +443,11 @@ uint64_t ReadChunk(MidiSong& song, vector<char>& buffer, uint64_t index)
 			{
 			case 0xf0:
 			{
-				cout << "System Exclusive at index " << index << endl;
+				std::print("System Exclusive at index {}-", index);
 				do {
 					;
 				} while ((uint8_t)buffer[index++] != 0xf7);
-				cout << "Exit System Exclusive at index " << index << endl;
+				println("{}", index);
 				break;
 			}
 			case 0xf1:
@@ -511,7 +519,7 @@ uint64_t ReadChunk(MidiSong& song, vector<char>& buffer, uint64_t index)
 					println("meta event track end. index = {}; expected {}", index + meta_len, track_end);
 					break;
 				default:
-					println("meta event {:#2x} of length {}", meta_event_type, meta_len);
+					println("meta event {:#4x} of length {}", meta_event_type, meta_len);
 				}
 				index += meta_len;
 			}
@@ -633,7 +641,7 @@ uint64_t ReadChunk(MidiSong& song, vector<char>& buffer, uint64_t index)
 	}
 	else
 	{
-		string error = format("Skipping unknown chunk {}", chunk_type);
+		string error = format("No handler for chunk {} - skipping", chunk_type);
 		song.mErrors.push_back(error);
 		std::cout << error << std::endl;
 	}
@@ -652,6 +660,9 @@ void OutputNotes(MidiSong& song)
 	float time_scale = 0.5f;
 
 	println("------------------ Outputing song ---------------");
+	for (string& s : song.mErrors)
+		println("Error: {}", s);
+
 	std::vector<MidiEvent> all_events;
 	for (auto& track : song.mTracks)
 	{
@@ -665,6 +676,9 @@ void OutputNotes(MidiSong& song)
 			return (e1.mTime < e2.mTime) || ((e1.mTime == e2.mTime) && (e1.mTrack < e2.mTrack)); 
 		});
 
+	println("all_events size = {}", all_events.size());
+	int note_on_count = 0, note_off_count = 0;
+
 	for (MidiEvent& event : all_events)
 	{
 		//if (event.mTrack < 3 || event.mTrack > 4)
@@ -674,6 +688,9 @@ void OutputNotes(MidiSong& song)
 		switch (event.mEventType)
 		{
 		case EventType::NOTE_ON:
+			note_on_count++;
+			if (event.mVelocity == 0)
+				println("note on with zero velocity!");
 			if (on_notes.size() < 4)
 			{
 				on_notes.insert(event.mKey);
@@ -697,6 +714,7 @@ void OutputNotes(MidiSong& song)
 			}
 			break;
 		case EventType::NOTE_OFF:
+			note_off_count++;
 			delta = event.mTime - last_time;
 			last_time = event.mTime;
 			if (delta > 0)
@@ -725,6 +743,9 @@ void OutputNotes(MidiSong& song)
 	}
 
 	cout << "};\r\nint songlen = " << commands_issued_count << ";\r\n";
+
+	println("note on count:  {}", note_on_count);
+	println("note off count: {}", note_off_count);
 }
 
 
@@ -734,17 +755,27 @@ MidiSong ReadMidi(std::string fname)
 	MidiSong song (fname);
 
 	// first, read the entire file into a buffer.
-	uint64_t sz = std::filesystem::file_size(fname);
-	vector<char> buffer(sz);
-	std::ifstream f(fname, std::ios::binary);
-	f.read(buffer.data(), sz);
-	std::cout << "Read " << sz << " bytes of " << fname << std::endl;
-
-	uint64_t index = 0;
-	do
+	if (std::filesystem::exists(fname))
 	{
-		index = ReadChunk(song, buffer, index);
-	} while (index < sz);
+		uint64_t sz = std::filesystem::file_size(fname);
+		vector<char> buffer(sz);
+		std::ifstream f(fname, std::ios::binary);
+		f.read(buffer.data(), sz);
+		if (f)
+		{
+			std::cout << "Read " << sz << " bytes of " << fname << std::endl;
+
+			uint64_t index = 0;
+			do
+			{
+				index = ReadChunk(song, buffer, index);
+			} while (index < sz);
+		}
+		else
+			song.mErrors.push_back(format("Failed to read: \"{}\"", fname));
+	}
+	else
+		song.mErrors.push_back(format("File not found: \"{}\"", fname));
 
 	return song;
 }
@@ -767,7 +798,7 @@ int main(int argc, char** argv)
 
 	InitializeFreqsTable();
 	//PrintP65NoteTable();
-	std::cout << std::endl;
+	println();
 
 	MidiSong song = ReadMidi(filename);
 
