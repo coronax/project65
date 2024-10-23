@@ -39,6 +39,11 @@ typedef struct Span
 	unsigned char Notes[4];
 } Span;
 
+
+Span* song = NULL;
+int songlen = 0;
+
+#if 0
 #if 1
 // ultima 
 Span song[] = {
@@ -1735,6 +1740,7 @@ Span song[] = {
 };
 int songlen = 260;
 #endif
+#endif
 
 void PlaySong()
 {
@@ -1850,8 +1856,48 @@ void PlaySongInt()
 }
 
 
+int LoadSong (char* filename)
+{
+    int result = 0;
+    FILE* f;
+    int len;
+    int version = 0;
+    int address = 0; // save unfortunately inserts the load address. hm.
 
-int main (void)
+    // free the previous song struct
+    if (song)
+    {
+        free(song);
+        song = NULL;
+        songlen = 0;
+    }
+
+    f = fopen (filename, "rb");
+    if (f)
+    {
+        fread(&address,2,1,f);
+        fread(&version,2,1,f);
+        fread(&len, 2,1,f);
+        printf ("version is %d\r\n", version);
+        printf ("len is %d\r\n", len);
+        song = malloc (len * sizeof(struct Span));
+        if (song)
+        {
+            if (len == fread(song, sizeof(struct Span), len, f))
+            {
+                songlen = len;
+                result = 1;
+                printf ("Finished reading song; #spans is %d\r\n", songlen);
+            }
+        }
+        fclose(f);
+    }
+
+    return result;
+}
+
+
+int main (int argc, char** argv)
 {
     //	_print_hex = _print_hex;
     //	char** xmodem_save_addr = (char**)0x020c;
@@ -1864,6 +1910,12 @@ int main (void)
 
     printf ("Initializing audio system. \r\n");
     *r1 = 0xff;
+
+    if (argc == 2)
+    {
+        printf ("Loading %s\r\n", argv[1]);
+        LoadSong (argv[1]);
+    }
 
     //PlaySong();
     //printf ("done playing\r\n");
@@ -1902,14 +1954,24 @@ int main (void)
         }
         else if (command_buffer[0] == 'S')
         {
-            printf ("Playing song\r\n");
-            PlaySong();
+            if (songlen > 0)
+            {
+                printf ("Playing song\r\n");
+                PlaySong();
+            }
+            else
+                printf ("No song loaded\r\n");
         }
         else if (command_buffer[0] == 'i')
         {
-            printf ("Playing song using interrupt driver\r\n");
-            PlaySongInt();
-            printf ("finished\r\n");
+            if (songlen > 0)
+            {
+                printf ("Playing song using interrupt driver\r\n");
+                PlaySongInt();
+                printf ("finished\r\n");
+            }
+            else
+                printf ("No song loaded\r\n");
         }
         else
         {

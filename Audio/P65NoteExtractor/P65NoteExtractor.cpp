@@ -55,6 +55,8 @@ using std::string;
 using std::vector;
 using std::cout, std::endl;
 
+using std::filesystem::path;
+
 struct MidiFreq
 {
 	int Number = -1;
@@ -749,10 +751,149 @@ void OutputNotes(MidiSong& song)
 }
 
 
-
-MidiSong ReadMidi(std::string fname)
+struct Span
 {
-	MidiSong song (fname);
+	int16_t Time;
+	unsigned char Notes[4];
+};
+
+
+void OutputNoteFile(MidiSong& song, path filename)
+{
+	int last_time = 0;
+	int delta = 0;
+	std::set<int> on_notes;
+	int commands_issued_count = 0;
+	float time_scale = 0.5f;
+
+	std::vector<Span> spans;
+
+	println("------------------ Outputing song ---------------");
+	for (string& s : song.mErrors)
+		println("Error: {}", s);
+
+	std::vector<MidiEvent> all_events;
+	for (auto& track : song.mTracks)
+	{
+		println("track {}: {} events", track.mName, track.mEvents.size());
+		all_events.insert(all_events.begin(), track.mEvents.begin(), track.mEvents.end());
+	}
+
+	std::sort(all_events.begin(), all_events.end(),
+		[](const MidiEvent& e1, const MidiEvent& e2)
+		{
+			return (e1.mTime < e2.mTime) || ((e1.mTime == e2.mTime) && (e1.mTrack < e2.mTrack));
+		});
+
+	println("all_events size = {}", all_events.size());
+	int note_on_count = 0, note_off_count = 0;
+
+	for (MidiEvent& event : all_events)
+	{
+		//if (event.mTrack < 3 || event.mTrack > 4)
+		//if (event.mTrack != 3)
+		//	continue;
+
+		switch (event.mEventType)
+		{
+		case EventType::NOTE_ON:
+			note_on_count++;
+			if (event.mVelocity == 0)
+				println("note on with zero velocity!");
+			if (on_notes.size() < 4)
+			{
+				on_notes.insert(event.mKey);
+				delta = event.mTime - last_time;
+				last_time = event.mTime;
+				if (delta > 0)
+				{
+					Span span = {};
+					span.Time = (int16_t)(time_scale * delta);
+					int j = 0;
+					for (int i : on_notes)
+					{
+						MidiFreq f = FindNote(i);
+						span.Notes[j++] = (uint8_t)f.Count;
+					}
+					spans.push_back(span);
+
+
+					//cout << "  { " << (int)(time_scale * delta);
+
+					//for (int i : on_notes)
+					//{
+					//	MidiFreq f = FindNote(i);
+					//	cout << ", " << f.Count;
+					//	//if (f.Count == 0) cout << "[[[note " << f.Number << " has count 0]]]";
+					//}
+					//for (auto i = on_notes.size(); i < 4; ++i)
+					//	cout << ", 0";
+					//cout << "},\r\n";
+					++commands_issued_count;
+				}
+			}
+			break;
+		case EventType::NOTE_OFF:
+			note_off_count++;
+			delta = event.mTime - last_time;
+			last_time = event.mTime;
+			if (delta > 0)
+			{
+				Span span = {};
+				span.Time = (int16_t)(time_scale * delta);
+				int j = 0;
+				for (int i : on_notes)
+				{
+					MidiFreq f = FindNote(i);
+					span.Notes[j++] = (uint8_t)f.Count;
+				}
+				spans.push_back(span);
+
+				//cout << "  { " << (int)(time_scale * delta);
+
+				//for (int i : on_notes)
+				//{
+				//	MidiFreq f = FindNote(i);
+				//	cout << ", " << f.Count;
+				//	//if (f.Count == 0) cout << "[[[note " << f.Number << " has count 0]]]";
+				//}
+				//for (auto i = on_notes.size(); i < 4; ++i)
+				//	cout << ", 0";
+				//cout << "},\r\n";
+				++commands_issued_count;
+			}
+
+			on_notes.erase(event.mKey);
+			break;
+		default:
+			// uh... do nothing?
+			break;
+		}
+
+	}
+
+	//cout << "};\r\nint songlen = " << commands_issued_count << ";\r\n";
+
+	println("note on count:  {}", note_on_count);
+	println("note off count: {}", note_off_count);
+	println("song len: {0} spans", spans.size());
+
+	std::ofstream f(filename, std::ios_base::binary);
+	uint16_t address = 0x0502;
+	uint16_t version = 1;
+	uint16_t count = (uint16_t)spans.size();
+	f.write((char*)&address, 2);
+	f.write((char*)&version, 2);
+	f.write((char*)&count, 2);
+	f.write((char*)spans.data(), spans.size() * sizeof(Span));
+	println("Wrote file {}", filename.string());
+}
+
+
+
+MidiSong ReadMidi(path fname)
+{
+	MidiSong song (fname.filename().string());
 
 	// first, read the entire file into a buffer.
 	if (std::filesystem::exists(fname))
@@ -772,10 +913,10 @@ MidiSong ReadMidi(std::string fname)
 			} while (index < sz);
 		}
 		else
-			song.mErrors.push_back(format("Failed to read: \"{}\"", fname));
+			song.mErrors.push_back(format("Failed to read: \"{}\"", fname.string()));
 	}
 	else
-		song.mErrors.push_back(format("File not found: \"{}\"", fname));
+		song.mErrors.push_back(format("File not found: \"{}\"", fname.string()));
 
 	return song;
 }
@@ -786,15 +927,24 @@ int main(int argc, char** argv)
 {
 	std::cout << "Hello World!\n";
 
-	std::string filename;
-	if (argc == 2)
+	std::filesystem::path filename, output_filename;
+	if (argc > 1)
 		filename = argv[1];
 	else
 	{
 		//filename = "jingle-bells-keyboard.mid"; 
-		//filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\Ultima IV\\u4wander.mid";
-		filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\King Crimson\\Frame by Frame.mid";
+		filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\Ultima IV\\u4wander.mid";
+		//filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\King Crimson\\Frame by Frame.mid";
 	}
+
+	if (argc > 2)
+		output_filename = argv[2];
+	else
+	{
+		output_filename = filename.filename().replace_extension("m65");
+	}
+
+	
 
 	InitializeFreqsTable();
 	//PrintP65NoteTable();
@@ -803,4 +953,5 @@ int main(int argc, char** argv)
 	MidiSong song = ReadMidi(filename);
 
 	OutputNotes(song);
+	OutputNoteFile(song, output_filename);
 }
