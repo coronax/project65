@@ -46,6 +46,11 @@
 #include <set>
 #include <vector>
 #include <filesystem>
+#include <boost/program_options.hpp>
+
+#include <iostream>
+#include <fstream>
+#include <iterator>
 
 using std::byte;
 using std::format;
@@ -758,7 +763,7 @@ struct Span
 };
 
 
-void OutputNoteFile(MidiSong& song, path filename)
+void OutputNoteFile(MidiSong& song, std::set<int> tracks, path filename)
 {
 	int last_time = 0;
 	int delta = 0;
@@ -768,7 +773,7 @@ void OutputNoteFile(MidiSong& song, path filename)
 
 	std::vector<Span> spans;
 
-	println("------------------ Outputing song ---------------");
+	println("------------------ Outputting song ---------------");
 	for (string& s : song.mErrors)
 		println("Error: {}", s);
 
@@ -793,6 +798,8 @@ void OutputNoteFile(MidiSong& song, path filename)
 		//if (event.mTrack < 3 || event.mTrack > 4)
 		//if (event.mTrack != 3)
 		//	continue;
+		if (!tracks.empty() && !tracks.contains(event.mTrack))
+			continue;
 
 		switch (event.mEventType)
 		{
@@ -921,30 +928,99 @@ MidiSong ReadMidi(path fname)
 	return song;
 }
 
+namespace po = boost::program_options;
 
+// A helper function to simplify the main part.
+template<class T>
+std::ostream& operator<<(std::ostream& os, const vector<T>& v)
+{
+	copy(v.begin(), v.end(), std::ostream_iterator<T>(os, " "));
+	return os;
+}
 
 int main(int argc, char** argv)
 {
 	std::cout << "Hello World!\n";
 
-	std::filesystem::path filename, output_filename;
-	if (argc > 1)
-		filename = argv[1];
-	else
+	std::filesystem::path filename;
+	std::filesystem::path output_filename;
+	std::set<int> tracks; // set of tracks to be output. If empty, output everything.
+
+	// default filename
+	//filename = "jingle-bells-keyboard.mid"; 
+	filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\Ultima IV\\u4wander.mid";
+	//filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\King Crimson\\Frame by Frame.mid";
+
+
+
+	// Declare a group of options that will be 
+	// allowed only on command line
+	po::options_description cmdline_options("Options");
+	cmdline_options.add_options()
+		//("version,v", "print version string")
+		("help", "produce help message")
+		("track,t", po::value<vector<int>>()->composing(), "tracks to include")
+		("input-file", po::value< vector<string> >(), "input file")		// have to declare input file & output file
+		("output-file", po::value< vector<string> >(), "output file")	// in order to use positional arguments later.
+		;
+
+	po::positional_options_description p;
+	p.add("input-file", 1);
+	p.add("output-file", 1);
+
+	//po::options_description cmdline_options;
+	//cmdline_options.add(generic).add(p);// .add(hidden);
+
+	po::variables_map vm;
+
+	try
 	{
-		//filename = "jingle-bells-keyboard.mid"; 
-		filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\Ultima IV\\u4wander.mid";
-		//filename = "R:\\Transfer\\psychedelia\\Music\\Sounds and Midis\\King Crimson\\Frame by Frame.mid";
+
+		po::store(po::command_line_parser(argc, argv).
+			options(cmdline_options).positional(p).run(), vm);
+		po::notify(vm);
+
+	}
+	catch (po::error& e)
+	{
+		std::cout << e.what() << std::endl;
+		//println(e.what());
+		return 1;
 	}
 
-	if (argc > 2)
-		output_filename = argv[2];
+	if (vm.count("help")) {
+		cout << cmdline_options << "\n";
+		return 1;
+	}
+
+	if (vm.count("track"))
+	{
+		cout << "tracks are: "
+			<< vm["track"].as<vector<int>>() << "\n";
+		tracks.insert(vm["track"].as<vector<int>>().begin(), vm["track"].as<vector<int>>().end());
+		cout << "tracks set size is " << tracks.size() << std::endl;
+	}
+
+	if (vm.count("input-file"))
+	{
+		filename = vm["input-file"].as<vector<string>>()[0];
+	}
+
+	if (vm.count("output-file"))
+	{
+		output_filename = vm["output-file"].as<vector<string>>()[0];
+	}
 	else
 	{
 		output_filename = filename.filename().replace_extension("m65");
 	}
 
-	
+	cout << "Summary:-------------" << std::endl;
+	cout << "tracks set size is " << tracks.size() << std::endl;
+	cout << "input: " << filename << std::endl;
+	cout << "output: " << output_filename << std::endl;
+
+	return 0;
 
 	InitializeFreqsTable();
 	//PrintP65NoteTable();
@@ -952,6 +1028,6 @@ int main(int argc, char** argv)
 
 	MidiSong song = ReadMidi(filename);
 
-	OutputNotes(song);
-	OutputNoteFile(song, output_filename);
+	//OutputNotes(song);
+	OutputNoteFile(song, tracks, output_filename);
 }
