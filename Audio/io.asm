@@ -2,12 +2,12 @@
 
 .export _msleep, _EnableInterrupt, _RemoveInterrupt
 .import _SongInterrupt, _int_sp, _next_note_at
-.import _s, _current_span, _next_span_at, _current_note, _t, _done, _songlen
+.import _s, _current_span, _next_span_at, _current_note, _t, _done, _songlen, _range_end
 .importzp sp
 
 
 
-MULTIPLEX_DELAY = 1  ; # of interrupts between multiplexing notes.
+MULTIPLEX_DELAY = 3  ; # of interrupts between multiplexing notes.
 r = $a000
 iptr1 = $34 ; a zero page spot allocated for use by interrupt routines.
 
@@ -44,10 +44,10 @@ nocarry2:
 
 	; is current_span == songlen? if so, done
 	lda _current_span
-	cmp _songlen
+	cmp _range_end
 	bne next_span
 	lda _current_span+1
-	cmp _songlen+1
+	cmp _range_end+1
 	bne next_span
 	; Here we're finished. end audio & set done
 	lda #$FF
