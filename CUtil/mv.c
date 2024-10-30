@@ -27,7 +27,11 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// A very stripped-down UNIX-like cp program for the P:65 computer.
+// A very stripped-down UNIX-like mv program for the P:65 computer.
+//
+// Because the Arduino SD library doesn't give me a way to rename files,
+// we basically have to do a copy & then remove the original. This doesn't
+// sound dangerous at all.
 //
 // Because the P:65 has tight constraints on the number of files it can have
 // open at one time, and because that includes directories opened with 
@@ -43,6 +47,7 @@
 // path length looks like.
 
 
+
 #include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -52,24 +57,27 @@
 #include <errno.h>
 #include <p65.h>
 
-int recursive = 0;
 int verbose = 1;
 
 char buffer1[128], buffer2[128];
 const int bufferlen = 128;
 
 
-// We add to the back of qdir and pull from the front.
-struct qdir_entry {
+// We can't recursively open a bunch of directories because of the open files
+// limit. So instead we'll store those instructions ina list/stack so we can
+// process them while only having one or two files open at a time.
+typedef struct qdir_entry {
     struct qdir_entry* next;
     char* src;
     char* dst;
-};
+} qdir_entry;
 
-struct qdir_entry* qdir_first = NULL;
-struct qdir_entry* qdir_last = NULL;
+qdir_entry* qdir_first = NULL;
+qdir_entry* qdir_last = NULL;
+
 
 int __fastcall__ getfdtype(int fd);
+
 
 // returns 1 iff name exists & is a directory,
 // 0 otherwise
@@ -83,6 +91,8 @@ int is_directory (const char* name)
     errno = _oserror = 0; // don't need these
     return result;
 }
+
+
 
 // returns the last name element of path
 const char* GetFilename(const char* path)
@@ -99,7 +109,7 @@ const char* GetFilename(const char* path)
 // quick-and-dirty substitute for BSD-like warn().
 void warn (const char* format, const char* msg)
 {
-	fprintf (stderr, "cp: ");
+	fprintf (stderr, "mv: ");
 	if (format)
 	{
 		fprintf (stderr, format, msg);
@@ -114,9 +124,9 @@ void warn (const char* format, const char* msg)
 
 
 // Add a directory that needs to be copied to the tail of qdir.
-void QueueDirectory (const char* _src, const char* _dst)
+void QueueDirectoryTail (const char* _src, const char* _dst)
 {
-    struct qdir_entry* d = (struct qdir_entry*)malloc(sizeof(struct qdir_entry));
+    qdir_entry* d = (qdir_entry*)malloc(sizeof(qdir_entry));
     char* src = strdup(_src);
     char* dst = strdup(_dst);
     //printf ("QueueDirectory %s %s\r\n", _src, _dst);
@@ -142,50 +152,94 @@ void QueueDirectory (const char* _src, const char* _dst)
 
 
 
-// Remove & deallocate the head of qdir.
-void FreeQdirHead()
+// for rm stage, add to front. ugh.
+void QueueDirectoryHead (const char* _src, const char* _dst)
 {
+    qdir_entry* d = (qdir_entry*)malloc(sizeof(qdir_entry));
+    char* src = strdup(_src);
+    char* dst = strdup(_dst);
+    //printf ("QueueDirectory %s %s\r\n", _src, _dst);
+    if (d == NULL || src == NULL || dst == NULL)
+    {
+        warn("%s",_src);
+        exit(1);
+    }
+    d->src = src;
+    d->dst = dst;
+    d->next = NULL;
+
     if (qdir_first)
     {
-        struct qdir_entry* d = qdir_first;
-        qdir_first = d->next;
-        if (qdir_first == NULL)
-            qdir_last = NULL;
-        free(d->src);
-        free(d->dst);
-        free(d);
+        d->next = qdir_first;
+        qdir_first = d;
+    }
+    else
+    {
+        qdir_first = qdir_last = d;
     }
 }
 
 
 
+// Remove head of qdir without freeing it.
+qdir_entry* UnlinkQdirHead()
+{
+    if (qdir_first)
+    {
+        qdir_entry* d = qdir_first;
+        qdir_first = d->next;
+        if (qdir_first == NULL)
+            qdir_last = NULL;
+        return d;
+    }
+    return NULL;
+}
+
+
+void FreeQdirEntry (qdir_entry* d)
+{
+    free(d->src);
+    free(d->dst);
+    free(d);
+}
+
+
+
 // Copy a single regular file. Will error out if src or dst are directories.
-void CopyFile (char* src, char* dst)
+// Returns the number of errors encountered.
+int CopyFile (char* src, char* dst)
 {
     //printf ("CopyFile %s %s\r\n", src,dst);
     if (copyfile (src, dst) != -1)
     {
         if (verbose)
             printf ("%s -> %s\r\n", src, dst);
+        return 0;
     }
     else
+    {
         warn ("failed: %s", src);
+        return 1;
+    }
 }
 
 
 
 // Copy the directories recorded in qdir.
+// Returns the number of errors encountered;
 int CopyFolder()
 {
     DIR* dir;
     struct dirent* d;
     char *src, *dst;
+    int num_errors = 0;
+    qdir_entry* qdir;
 
-    while (qdir_first)
+    while (qdir = UnlinkQdirHead())
     {
         // src is a directory. dst either does not exist or is a dir.
-        src = qdir_first->src;
-        dst = qdir_first->dst;
+        src = qdir->src;
+        dst = qdir->dst;
         //printf ("CopyFolder loop: %s %s\r\n", src, dst);
 
         if (is_directory (dst) || (mkdir(dst) != -1))
@@ -202,15 +256,16 @@ int CopyFolder()
                     if (d->d_type == 2)
                     {
                         // directory
-                        QueueDirectory (buffer1, buffer2);
+                        QueueDirectoryTail (buffer1, buffer2);
                     }
                     else if (d->d_type == 1)
                     {
-                        CopyFile (buffer1, buffer2);
+                        num_errors += CopyFile (buffer1, buffer2);
                     }
                     else
                     {
                         warn ("unknown type: (%s)", buffer1);
+                        ++num_errors;
                     }
                 }
                 closedir(dir);
@@ -218,14 +273,74 @@ int CopyFolder()
             else
             {
                 warn("opendir failed: %s", src);
+                ++num_errors;
             }
         }
         else
         {
             warn ("mkdir failed: %s", dst);
+            ++num_errors;
         }
-        FreeQdirHead();
+        FreeQdirEntry(qdir);
     }
+
+    return num_errors;
+}
+
+
+
+// Delete a single regular file. 
+void DeleteFile (const char* src)
+{
+    //printf ("DeleteFile %s\r\n", src);
+    if (remove (src) != -1)
+    {
+        if (verbose)
+            printf ("removed '%s'\r\n", src);
+    }
+    else
+        warn ("cannot remove %s", src);
+}
+
+
+
+// Copy the directories recorded in qdir.
+// CJ BUG deletefolder requires the qdir struct to be local because of 
+// how the recursion works.
+int DeleteFolder(const char* src)
+{
+    DIR* dir;
+    struct dirent* d;
+    qdir_entry* qdir = NULL;
+    //printf ("DeleteFolder %s\r\n", src);
+    if (dir = opendir(src))
+    {
+        while (d = readdir(dir))
+        {
+            snprintf (buffer1, bufferlen, "%s/%s", src, d->d_name);
+            if (d->d_type == 2) // directory
+            {
+                QueueDirectoryHead (buffer1, "");
+            }
+            else if (d->d_type == 1) // regular file
+            {
+                DeleteFile (buffer1);
+            }
+            else
+            {
+                warn ("unknown type: (%s)", buffer1);
+            }
+        }
+        closedir(dir);
+    }
+
+    while (qdir = UnlinkQdirHead())
+    {
+        DeleteFolder (qdir->src);
+        FreeQdirEntry (qdir);
+    }
+
+    DeleteFile (src);
 }
 
 
@@ -248,6 +363,11 @@ void DoCopy (char* src, char* dst)
     // Set up whatever direct or recursive copy we need for a particular 
     // src & dst pair.
     //printf ("DoCopy: %s  %s\r\n", src, dst);
+    int num_errors = 0;
+    char* copy_of_src = strdup(src);
+    // we make a copy of src because src is typically in one of the global
+    // buffers, and it'll get overwritten as we copy folders before we 
+    // need it again to call DeleteFolder.
 
     if (CheckForIllegalRecursion (src, dst))
     {
@@ -255,21 +375,22 @@ void DoCopy (char* src, char* dst)
     }
     else if (is_directory(src))
     {
-        if (recursive)
-        {
-            QueueDirectory (src, dst);
-            CopyFolder();
-        }
-        else
-        {
-            warn ("-r not specified. omitting directory %s", src);
-        }
+        QueueDirectoryHead (src, dst);
+        num_errors += CopyFolder();
+        if (num_errors == 0)
+            DeleteFolder (copy_of_src);
     }
     else
     {
         // simple file copy
-        CopyFile (src,dst);
+        //if (rename (src, dst) == -1)
+        //    warn ("failed: %s", src);
+        num_errors += CopyFile (src,dst);
+        if (num_errors == 0)
+            DeleteFile (copy_of_src);
     }
+
+    free(copy_of_src);
 }
 
 
@@ -277,30 +398,33 @@ void DoCopy (char* src, char* dst)
 // The canonical filename starts with /, and does not end with /.
 // We don't care about case here because we use a case-insensitive
 // compare when checking for recursion.
-void CanonicalizeFilename (char* buffer, const char* path)
+// Returns 1 if there's enough room in the buffer (length if bufferlen).
+// Returns 0 if there isn't room.
+int CanonicalizeFilename (char* buffer, const char* path)
 {
     int n;
     buffer[0] = 0;
-    if (path[0] == '/')
-        snprintf (buffer, bufferlen, path);
-        //strncpy (buffer, bufferlen, path, bufferlen);
-    else
+    if ((path[0] == '/') && (strlen(path) < bufferlen - 1))
+        n = snprintf (buffer, bufferlen, path);
+    else if (strlen(path) < bufferlen - 2)
     {
-        snprintf (buffer, bufferlen, "/%s", path);
-        //buffer[0] = '/';
-        //strncpy (buffer+1, bufferlen-1, path);
+        n = snprintf (buffer, bufferlen, "/%s", path);
     }
-    n = strlen(buffer);
+    else
+        return 0;
+
+    //n = strlen(buffer);
     if (buffer[n-1] == '/')
         buffer[n-1] = 0;
+    return 1;
 }
 
 
 
 void usage (void)
 {
-    fprintf(stderr, "usage: cp [-rv] source dest\r\n");
-    fprintf(stderr, "   or: cp [-rv] source1 ... dest_folder\r\n");
+    fprintf(stderr, "usage: mv [-v] source dest\r\n");
+    fprintf(stderr, "   or: mv [-v] source1 ... dest_folder\r\n");
     exit(2);
 }
 
@@ -316,11 +440,8 @@ int main (int argc, char** argv)
     {
         switch(ch)
         {
-        case 'r':
-            recursive = 1;
-            break;
         case 'v':
-            verbose = 1;
+            verbose = !verbose;
             break;
         case '?':
         default:
@@ -343,10 +464,24 @@ int main (int argc, char** argv)
             src = argv[i];
             dst = argv[argc-1];
             fname = GetFilename(src);
-            CanonicalizeFilename(buffer1, src);
-            CanonicalizeFilename(buffer2, dst);
+            if (0 == CanonicalizeFilename(buffer1, src))
+            {
+                warn ("path too long: %s", src);
+                exit(1);
+            }
+            if ((0 == CanonicalizeFilename(buffer2, dst))
+                || (strlen(buffer2) + strlen(fname) > bufferlen-2))
+            {
+                warn ("path too long: %s", dst);
+                exit(1);
+            }
+            
             strcat(buffer2, "/");
             strcat(buffer2, fname);
+
+            //printf ("buffer1: '%s'\r\n", buffer1);
+            //printf ("buffer2: '%s'\r\n", buffer2);
+
             DoCopy (buffer1, buffer2);
         }
     }
@@ -360,8 +495,16 @@ int main (int argc, char** argv)
             //just copy src to dst. dst either a file or doesn't exist.
             src = argv[optind];
             dst = argv[argc-1];
-            CanonicalizeFilename(buffer1, src);
-            CanonicalizeFilename(buffer2, dst);
+            if (0 == CanonicalizeFilename(buffer1, src))
+            {
+                warn ("path too long: %s", src);
+                exit(1);
+            }
+            if (0 == CanonicalizeFilename(buffer2, dst))
+            {
+                warn ("path too long: %s", dst);
+                exit(1);
+            }
             DoCopy (buffer1, buffer2);
         }
         else
