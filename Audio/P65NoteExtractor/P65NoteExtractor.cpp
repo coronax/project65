@@ -244,11 +244,13 @@ std::vector<MidiFreq> Freqs = {
 
 void InitializeFreqsTable()
 {
-	float p65scale = .00003201f; // time in seconds of a single iteration of the counter. 32*1MHz oscillator.
+//	float p65scale = .00003201f; // time in seconds of a single iteration of the 8-bitcounter. 32*1MHz oscillator.
+//	float p65scale = .00000201f; // time in seconds of a single iteration of the 12-bit counter. 32*1MHz oscillator.
+	float p65scale = .00000801f; // time in seconds of a single iteration of the 12-bit counter. 32*1MHz oscillator. Frequency downshifted twice
 	for (auto& f : Freqs)
 	{
 		f.Wavelength = 1.f / f.Frequency;
-		f.Count = std::max(0, 256 - (int)(f.Wavelength / p65scale));
+		f.Count = std::max(0, 4096 - (int)(f.Wavelength / p65scale));
 	}
 }
 
@@ -759,9 +761,11 @@ void OutputNotes(MidiSong& song)
 struct Span
 {
 	int16_t Time;
-	unsigned char Notes[4];
+	uint16_t Notes[4];
 };
 
+constexpr uint16_t NOTE_ON  = 0xf000;
+constexpr uint16_t NOTE_OFF = 0x0000;
 
 void OutputNoteFile(MidiSong& song, std::set<int> tracks, path filename)
 {
@@ -769,7 +773,7 @@ void OutputNoteFile(MidiSong& song, std::set<int> tracks, path filename)
 	int delta = 0;
 	std::set<int> on_notes;
 	int commands_issued_count = 0;
-	float time_scale = 0.5f;
+	float time_scale = 0.4f;
 
 	std::vector<Span> spans;
 
@@ -820,7 +824,7 @@ void OutputNoteFile(MidiSong& song, std::set<int> tracks, path filename)
 					for (int i : on_notes)
 					{
 						MidiFreq f = FindNote(i);
-						span.Notes[j++] = (uint8_t)f.Count;
+						span.Notes[j++] = (uint16_t)f.Count | NOTE_ON;
 					}
 					spans.push_back(span);
 
@@ -852,7 +856,7 @@ void OutputNoteFile(MidiSong& song, std::set<int> tracks, path filename)
 				for (int i : on_notes)
 				{
 					MidiFreq f = FindNote(i);
-					span.Notes[j++] = (uint8_t)f.Count;
+					span.Notes[j++] = (uint16_t)f.Count | NOTE_ON;
 				}
 				spans.push_back(span);
 
@@ -930,13 +934,16 @@ MidiSong ReadMidi(path fname)
 
 namespace po = boost::program_options;
 
-// A helper function to simplify the main part.
+
+// A helper function swiped from a boost::program_options example
 template<class T>
 std::ostream& operator<<(std::ostream& os, const vector<T>& v)
 {
 	copy(v.begin(), v.end(), std::ostream_iterator<T>(os, " "));
 	return os;
 }
+
+
 
 int main(int argc, char** argv)
 {
@@ -1012,7 +1019,7 @@ int main(int argc, char** argv)
 	}
 	else
 	{
-		output_filename = filename.filename().replace_extension("m65");
+		output_filename = filename.filename().replace_extension("m66");
 	}
 
 	cout << "Summary:-------------" << std::endl;
@@ -1020,7 +1027,7 @@ int main(int argc, char** argv)
 	cout << "input: " << filename << std::endl;
 	cout << "output: " << output_filename << std::endl;
 
-	return 0;
+	//return 0;
 
 	InitializeFreqsTable();
 	//PrintP65NoteTable();

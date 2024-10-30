@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-void __fastcall__ XModem (void);
+//void __fastcall__ XModem (void);
 
 
 void __fastcall__ msleep(int ms);
@@ -21,7 +21,7 @@ void __fastcall__ msleep(int ms);
 typedef struct Span
 {
 	int Time;
-	unsigned char Notes[4];
+	unsigned int Notes[4];
 } Span;
 
 
@@ -34,8 +34,11 @@ char command_buffer[80];
 
 int verbose = 0;
 
+// Sound register, word length. Bits 0-11 specify the frequency,
+// bit 12 is set to enable sound, unset to disable. Bits 13-15 are unused.
+unsigned int* const w1 = (unsigned int*)(0xa000);
 
-
+/*
 unsigned char GetHexit (unsigned char c)
 {
 	if ((c >= '0') && (c <= '9'))
@@ -46,13 +49,13 @@ unsigned char GetHexit (unsigned char c)
 		return c - 'a' + 10;
 	return 255;
 }
-
+*/
 
 
 
 void PlaySong()
 {
-    unsigned char* r = (unsigned char*)(0xa000);
+    //unsigned int* r = (unsigned int*)(0xa000);
     int i, j;
     int time;
 
@@ -65,20 +68,17 @@ void PlaySong()
         {
             if ((j == 0) || (s->Notes[j] != 0))
             {
-                *r = s->Notes[j];
+                *w1 = s->Notes[j];
                 msleep(20);
-                time += 10;
+                time += 2;
             }
             ++j;
             if (j > 3)
                 j = 0;
-            
-
         }
-        
     }
 
-    *r = 0xff;
+    *w1 = 0x0000;
     return;
 }
 
@@ -94,10 +94,11 @@ char* int_sp;
 
 
 // Not actually used for playing, just for sorting out the algorithm
+#if 0
 void SongInterrupt()
 {
     // an interrupt called by our 100 Hz timer
-    unsigned char* const r = (unsigned char*)(0xa000);
+    unsigned int* const w1 = (unsigned char*)(0xa000);
 
     ++t;
 
@@ -109,7 +110,7 @@ void SongInterrupt()
         ++current_span;
         if (current_span >= songlen)
         {
-            *r = 0xff; // silence music
+            *w1 = 0x0000; // silence music
             done = 1;
         }
         else
@@ -120,7 +121,7 @@ void SongInterrupt()
             t = 0;
             next_span_at = s->Time;
             current_note = 0;
-            *r = s->Notes[current_note];
+            *w1 = s->Notes[current_note];
             //next_note_at = 2; // 20ms ? Is that way too slow? dunno!
         }
     }
@@ -138,20 +139,22 @@ void SongInterrupt()
     }
 */
 }
-
+#endif
 
 void __fastcall__ EnableInterrupt();
 void __fastcall__ RemoveInterrupt();
 
 void PlaySongInt()
 {
+    //unsigned int* w1 = (unsigned int*)(0xa000);
+
     current_span = range_begin;
     next_span_at = 0;
     next_note_at = 0;
     t = 0;
     s = &song[range_begin];
     done = 0;
-    int_sp = malloc(256);
+    int_sp = NULL; //malloc(256); //?
     EnableInterrupt();
 
     while (!done)
@@ -160,7 +163,7 @@ void PlaySongInt()
         printf ("%d\r\n", current_span);
     }
     RemoveInterrupt();
-    //*r = 0xff;
+    *w1 = 0x00ff;
 
     printf ("done is %d; current span is %d\r\n", (int)done, current_span);
 }
@@ -235,10 +238,13 @@ int main (int argc, char** argv)
 {
     //	_print_hex = _print_hex;
     //	char** xmodem_save_addr = (char**)0x020c;
-    unsigned char val1, val2;
-    unsigned char* r1 = (unsigned char*)(0xa000);
+    //unsigned char val1, val2;
+    //unsigned char* r1 = (unsigned char*)(0xa000);
+    //unsigned char* r2 = (unsigned char*)(0xa001);
+    //unsigned int* w1 = (unsigned int*)(0xa000);
     unsigned int tmp; // for parsing numbers
     unsigned int new_range_begin, new_range_end;
+    long tl; // for parsing
     //unsigned char ch;
     int i = 0;
     char *end, *end2;
@@ -251,11 +257,11 @@ int main (int argc, char** argv)
         {
         case 'r':
             //range option either begin or begin-end
-            range_begin = strtoul (optarg, &end, 10);
+            range_begin = strtol (optarg, &end, 10);
             if (*end != '\0')
             {
                 ++end;
-                range_end = strtoul (end, NULL, 10);
+                range_end = strtol (end, NULL, 10);
             }
             break;
         case 'v':
@@ -272,7 +278,7 @@ int main (int argc, char** argv)
 
     printf ("P65 Audio Player\r\n");
 
-    *r1 = 0xff; // silence audio
+    *w1 = 0x0000; // initialize audio
 
     if (argc - optind == 1)
     {
@@ -299,7 +305,6 @@ int main (int argc, char** argv)
         else
         {
             warn ("load failed: %s", argv[optind]);
-            //printf ("Load of '%s' failed.\r\n", argv[optind]);
         }
     }
 
@@ -311,7 +316,7 @@ int main (int argc, char** argv)
         //printf ("read buffer\r\n");
         if (command_buffer[0] == 'q')
         {
-            *r1 = 0xff;  // kill audio
+            *w1 = 0x0000;  // kill audio
             break;
         }
         else if (command_buffer[0] == 'r')
@@ -319,7 +324,7 @@ int main (int argc, char** argv)
             new_range_begin = range_begin;
             new_range_end = range_end;
             errno = 0;
-            tmp = strtoul (command_buffer + 1, &end, 10);
+            tmp = strtol (command_buffer + 1, &end, 10);
             if ((errno == 0) && (end != command_buffer+1))
             {
                 new_range_begin = tmp;
@@ -327,7 +332,7 @@ int main (int argc, char** argv)
                 {
                     ++end;
                     errno = 0;
-                    tmp = strtoul (end, &end2, 10);
+                    tmp = strtol (end, &end2, 10);
                     if ((errno == 0) && (end2 != end))
                         new_range_end = tmp;
                 }
@@ -347,25 +352,25 @@ int main (int argc, char** argv)
         else if (command_buffer[0] == 's')
         {
             printf ("Playing scale\r\n");
-            *r1 = 0xb0;
+            *w1 = 0xfb00;
             msleep(2000);
-            *r1 = 0xc0;
+            *w1 = 0xfc00;
             msleep(2000);
-            *r1 = 0xd0;
+            *w1 = 0xfd00;
             msleep(2000);
-            *r1 = 0xe0;
+            *w1 = 0xfe00;
             msleep(2000);
-            *r1 = 0xf0;
+            *w1 = 0xff00;
             msleep(2000);
-            *r1 = 0xe0;
+            *w1 = 0xfe00;
             msleep(2000);
-            *r1 = 0xd0;
+            *w1 = 0xfd00;
             msleep(2000);
-            *r1 = 0xc0;
+            *w1 = 0xfc00;
             msleep(2000);
-            *r1 = 0xb0;
+            *w1 = 0xfb00;
             msleep(2000);
-            *r1 = 0xff;
+            *w1 = 0x00ff;
         }
         else if (command_buffer[0] == 'S')
         {
@@ -388,8 +393,32 @@ int main (int argc, char** argv)
             else
                 printf ("No song loaded\r\n");
         }
+        /*
+        else if (!strncmp (command_buffer, "on", 2))
+        {
+            *w1 = 0xff00; // turn on audio;
+        }
+        else if (!strncmp (command_buffer, "off", 3))
+        {
+            *w1 = 0x0000; // turn off audio;
+        }
+        */
         else
         {
+            tl = strtol (command_buffer, &end, 16);
+            if ((tl >= 0) && (tl < 4096))
+            {
+                tmp = (unsigned int)tl;
+                printf ("playing hex code %x\r\n", tmp);
+                *w1 = 0xf000 | tmp;
+                msleep (2000);
+                *w1 = 0x0000;
+            }
+            else
+            {
+              printf ("Invalid hex code\r\n");
+            }
+/*
             val1 = GetHexit(command_buffer[0]);
             val2 = GetHexit(command_buffer[1]);
             if ((val1 > 15) || (val2 > 15))
@@ -403,6 +432,7 @@ int main (int argc, char** argv)
               msleep(2000);
               *r1 = 0xff;
             }
+*/
         }
 
     }

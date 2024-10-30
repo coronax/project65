@@ -7,7 +7,7 @@
 
 
 
-MULTIPLEX_DELAY = 3  ; # of interrupts between multiplexing notes.
+MULTIPLEX_DELAY = 2  ; # of interrupts between multiplexing notes.
 r = $a000
 iptr1 = $34 ; a zero page spot allocated for use by interrupt routines.
 
@@ -53,13 +53,15 @@ nocarry2:
 	lda #$FF
 	sta _done
 	sta r
+	lda #$00
+	sta r+1
 	rts
 next_span:
 	; here there is a next span to start.
 	; first, increment the pointer s by size of span & save s to iptr1
 	clc
 	lda _s
-	adc #6 ; sizeof struct Span
+	adc #10 ; sizeof struct Span
 	sta _s
 	sta iptr1
 	lda _s+1
@@ -78,19 +80,24 @@ next_span:
 	; _next_span_at = s.Time
 	ldy #1
 	lda (iptr1),y
-	;lsr		; we're gonna double speed for now
 	sta _next_span_at+1
 	ldy #0
 	lda (iptr1),y
-	;lsr
 	sta _next_span_at
 
 	; r = s->Notes[current_note]
-	ldy _current_note
-	iny
-	iny
+	;ldy _current_note
+	;iny
+	;asl
+	lda _current_note
+	inc
+	asl
+	tay
 	lda (iptr1),y ; current note value
 	sta r        ; write to audio card
+	iny
+	lda (iptr1),y ; 2nd byte
+	sta r+1;
 	; _next_note_at = MULTIPLEX_DELAY
 	lda #MULTIPLEX_DELAY
 	sta _next_note_at
@@ -114,29 +121,46 @@ done_span:
 	lda _next_note_at+1
 	adc #0
 	sta _next_note_at+1
+do_multiplex:
 	; Now increment current note
 	lda _current_note
 	inc
 	and #3 ; rollover if >3
 	sta _current_note
+	tax ; save current note val for later
 	; update if current note is 0 or the note value is nonzero
-	tay ; current note in y and x, cuz we'll need it later
-	iny
-	iny ; add 2 to y so we'll point at the current note value
-	tax
+	inc ; convert current note
+	asl ; to index from start of s
+	tay ; and put in y.
+	;tay ; current note in y and x, cuz we'll need it later
+	;iny
+	;iny ; add 2 to y so we'll point at the current note value
+	;tax ; and also x for some reason
 	lda _s
 	sta iptr1
 	lda _s+1
 	sta iptr1+1
 	lda (iptr1),y ; retrieve curent note value
 	bne do_update_note  ; update if note value is not zero
+	iny
+	lda (iptr1),y ; high byte of current note
+	bne do_update_note
 	cpx #0
+	;lda _current_note
 	beq do_update_note  ; also update if note index _is_ zero
-	bra done
+	bra do_multiplex ; we want to keep going until we have a note to play
 do_update_note:
+	;sta r
+	; redo this as a two-byte write
+	txa
+	inc
+	asl
+	tay
+	lda (iptr1),y
 	sta r
-
-
+	iny
+	lda (iptr1),y
+	sta r+1
 
 
 done:
