@@ -81,7 +81,7 @@ O_EXCL          = $80
 ; $0200-$0205 are for IRQ and NMI redirection
 
 ; Real-time clock
-		; # of seconds since started (32-bit, since that's what c lib wants)
+; # of seconds since started (32-bit, since that's what c lib wants)
 tod_seconds 	= $0206 ; tod seconds LSB
 tod_seconds2	= $0207
 tod_seconds3	= $0208
@@ -89,21 +89,16 @@ tod_seconds4	= $0209 ; tod seconds MSB
 tod_seconds100  = $020a ; hundredths of seconds; effectively a count of clock interrupts
 
 max3100_baud    = $020b ; an index to MAX3100_BAUD_TABLE
-;spi_readbuffer	= $020c	; Used by spibyte
-;spi_writebuffer	= $020d	; Used by spibyte
 
 program_address_low=$20f		; pointers to begin/end of current loaded 
 program_address_high=$210		
-program_end_low=$211			; Address of the byte following the last program byte.
-program_end_high=$212
+program_end_low   = $211		; Address of the byte following the last program byte.
+program_end_high  = $212
 
 ; monitor variables
-breakpoint_low=$213
-breakpoint_high	= $214
+breakpoint_low    = $213
+breakpoint_high	  = $214
 breakpoint_value  = $215
-
-;SCRATCH = $216			; scratch for table jumps. 2 bytes.
-;SCRATCHH = $217
 
 ; devtab management
 CURRENT_DEVICE    = $0220	; devtab index of current device

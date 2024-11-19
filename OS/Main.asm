@@ -35,14 +35,12 @@
 .import dev_getc, dev_writestr, dev_putc, dev_open, dev_close, dev_ioctl, set_filename, set_filemode, init_devices
 .import dev_read
 .import TokenizeCommandLine, test_tokenizer
-.import mkdir, rmdir, rm, cp, mv, load_program
+.import load_program
 
 ; TODO
 ;
 ; - Move command-line processing to its own file?
-; - command-line tokenizer.
 ; - consistency pass re: register usage of I/O commands
-; - sample programs using IO
 ; - redirection of command-line? irrelevant for now...
 		
 ; This is the version actually written for Project:65,
@@ -221,12 +219,12 @@ skip:
 		DispatchCommandLine m_command, process_m
 		DispatchCommandLine load_command, ProcessLoadCommand
 		DispatchCommandLine ls_command, ProcessLsCommand
-		DispatchCommandLine mkdir_command, ProcessMkdirCommand
+		;DispatchCommandLine mkdir_command, ProcessMkdirCommand
 		DispatchCommandLine more_command, ProcessMoreCommand
-		DispatchCommandLine rm_command, ProcessRmCommand
-		DispatchCommandLine cp_command, ProcessCpCommand
-		DispatchCommandLine mv_command, ProcessMvCommand
-		DispatchCommandLine rmdir_command, ProcessRmdirCommand
+		;DispatchCommandLine rm_command, ProcessRmCommand
+		;DispatchCommandLine cp_command, ProcessCpCommand
+		;DispatchCommandLine mv_command, ProcessMvCommand
+		;DispatchCommandLine rmdir_command, ProcessRmdirCommand
 		DispatchCommandLine save_command, ProcessSaveCommand
 		DispatchCommandLine uptime_command, UptimeCommand
 		DispatchCommandLine cls_command, ProcessCLSCommand
@@ -237,7 +235,7 @@ skip:
 		jsr load_program
 		cmp #0
 		bne error
-		jsr print_program_addresses
+		;jsr print_program_addresses
 		jsr execute_program
 		cmp #0				; check execute_program return value
 		bne error
@@ -324,7 +322,7 @@ program_return:
 ; command names. A few of these are shared with filesystem.
 b_command:		.asciiz "b"
 g_command:		.asciiz "g"		
-ls_command:		.asciiz "ls"
+ls_command:		.asciiz "kls"	; kernel ls
 mkdir_command:	.asciiz "mkdir"
 rmdir_command:	.asciiz "rmdir"
 rm_command:		.asciiz "rm"
@@ -435,8 +433,9 @@ errtable:
 
 
 
-; LS is still very oldschool and just expects a string of text from the device.
-; This needs to be replaced with a proper directory reading routine.
+; KLS is a fast and simple directory lister. It doesn't have the formatting 
+; of the external cutil/ls but it also doesn't have any loading time, so I'm
+; keeping it around.
 .proc ProcessLsCommand
 		lda #2
 		jsr setdevice
@@ -530,134 +529,6 @@ cleanup:
 
 
 
-; handler for mkdir shell command
-.proc ProcessMkdirCommand
-		; there should be exactly 2 arguments
-		lda argc
-		cmp #2
-		beq syntax_ok
-		lda #P65_ESYNTAX
-		bra error
-syntax_ok:
-		lda argv1L
-		ldx argv1H
-		jsr mkdir		; Call mkdir!
-		cmp #0			; Check return code
-		beq cleanup
-
-error:
-		jsr perror
-
-cleanup:
-		jmp _commandline
-.endproc
-
-
-
-; handler for rmdir shell command
-.proc ProcessRmdirCommand
-		; there should be exactly 2 arguments
-		lda argc
-		cmp #2
-		beq syntax_ok
-		lda #P65_ESYNTAX
-		bra error
-syntax_ok:
-		lda argv1L
-		ldx argv1H
-		jsr rmdir		; Call rmdir!
-		cmp #0			; Check return code
-		beq cleanup
-
-error:
-		jsr perror
-
-cleanup:
-		jmp _commandline
-.endproc
-
-
-
-; handler for rm shell command. We want to allow multiple arguments. Maybe later?
-.proc ProcessRmCommand
-		; there should be exactly 2 arguments
-		lda argc
-		cmp #2
-		beq syntax_ok
-		lda #P65_ESYNTAX
-		bra error
-syntax_ok:
-		lda argv1L
-		ldx argv1H
-		jsr rm			; Call rm!
-		cmp #0			; Check return code
-		beq cleanup
-
-error:
-		jsr perror
-
-cleanup:
-		jmp _commandline
-.endproc
-
-
-
-; handler for rm shell command. We want to allow multiple arguments. Maybe later?
-.proc ProcessCpCommand
-		; there should be exactly 2 arguments
-		lda argc
-		cmp #3
-		beq syntax_ok
-		lda #P65_ESYNTAX
-		bra error
-syntax_ok:
-		lda argv2H		; let's try to stick arg2 in ptr2
-		sta ptr2h
-		lda argv2L
-		sta ptr2
-		lda argv1L		; arg1 in AX
-		ldx argv1H
-		jsr cp			; Call cp function!
-		cmp #0			; Check return code
-		beq cleanup
-
-error:
-		jsr perror
-
-cleanup:
-		jmp _commandline
-.endproc
-
-
-
-; handler for mv shell command. 
-.proc ProcessMvCommand
-		; there should be exactly 2 arguments
-		lda argc
-		cmp #3
-		beq syntax_ok
-		lda #P65_ESYNTAX
-		bra error
-syntax_ok:
-		lda argv2H		; let's try to stick arg2 in ptr2
-		sta ptr2h
-		lda argv2L
-		sta ptr2
-		lda argv1L		; arg1 in AX
-		ldx argv1H
-		jsr mv			; Call cp function!
-		cmp #0			; Check return code
-		beq cleanup
-
-error:
-		jsr perror
-
-cleanup:
-		jmp _commandline
-.endproc
-
-
-
 .proc ProcessMoreCommand
 		; setup
 		lda #O_RDONLY
@@ -703,6 +574,8 @@ cleanup:
 
 
 
+; Loads a program into memory but does not immediately launch it. It can then
+; be launched with the g or r commands.
 .proc ProcessLoadCommand
 		; setup
 		lda #O_RDONLY
@@ -1244,11 +1117,6 @@ banner:
 banner2:
 		.asciiz "\r\nMonitor ready\r\n"
 
-
-;string1:
-;		.byte CR, LF, ESC, "[31mYOU SAID ", '"', 0
-;
-;string2: .byte '"', ESC, "[37m", CR, LF, 0
 
 
 ram_test_string1:
