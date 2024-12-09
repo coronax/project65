@@ -39,33 +39,44 @@
 
 
 .segment "kernal_table"
-FS_STAT:        jmp stat                ; FFB5
-FS_MKDIR:       jmp mkdir               ; FFB8
-FS_RMDIR:       jmp rmdir               ; FFBB
-FS_RM:          jmp rm                  ; FFBE
-FS_CP:          jmp cp                  ; FFC1
-FS_MV:          jmp mv                  ; FFC4
+FS_STAT:        jmp stat                ; FF9F
+FS_MKDIR:       jmp mkdir               ; FFA2
+FS_RMDIR:       jmp rmdir               ; FFA5
+FS_RM:          jmp rm                  ; FFA8
+FS_CP:          jmp cp                  ; FFAB
+FS_MV:          jmp mv                  ; FFAE
 
-DEV_IOCTL:      jmp dev_ioctl           ; FFC7
-DEV_SEEK:       jmp dev_seek            ; FFCA
-DEV_READ:       jmp dev_read            ; FFCD
-DEV_GET_STATUS: jmp dev_get_status      ; FFD0
-FILE_OPEN:      jmp openfile            ; FFD3
-SET_FILENAME:   jmp set_filename        ; FFD6
-SET_FILEMODE:   jmp set_filemode        ; FFD9
-DEV_OPEN:       jmp dev_open            ; FFDC open current device
-DEV_CLOSE:      jmp dev_close           ; FFDF close current device
-CommandLine:    jmp _commandline        ; FFE2
-Print_String:   jmp _print_string       ; FFE5
-Print_Char:     jmp _print_char         ; FFE8 serial-specific routine
-Read_Char:      jmp _read_char          ; FFEB serial-specific routine
-PutHexit:       jmp _print_hex          ; FFEE
-DEV_PUTC:       jmp dev_putc            ; FFF1 writes character to current device
-DEV_GETC:       jmp dev_getc            ; FFF4 reads character from current device
-SETDEVICE:      jmp setdevice           ; FFF7 sets current device - see devtab.asm
+DEV_IOCTL:      jmp dev_ioctl           ; FFB1
+DEV_SEEK:       jmp dev_seek            ; FFB4
+DEV_READ:       jmp dev_read            ; FFB7
+DEV_GET_STATUS: jmp dev_get_status      ; FFBA
+FILE_OPEN:      jmp openfile            ; FFBD
+SET_FILENAME:   jmp set_filename        ; FFC0
+SET_FILEMODE:   jmp set_filemode        ; FFC3
+DEV_OPEN:       jmp dev_open            ; FFC6 open current device
+DEV_CLOSE:      jmp dev_close           ; FFC9 close current device
+CommandLine:    jmp _commandline        ; FFCC
+Print_String:   jmp _print_string       ; FFCF
+Print_Char:     jmp _print_char         ; FFD2 serial-specific routine
+Read_Char:      jmp _read_char          ; FFD5 serial-specific routine
+PutHexit:       jmp _print_hex          ; FFD8
+DEV_PUTC:       jmp dev_putc            ; FFDB writes character to current device
+DEV_GETC:       jmp dev_getc            ; FFDE reads character from current device
+SETDEVICE:      jmp setdevice           ; FFE1 sets current device - see devtab.asm
 
 ; interrupt vectors
-.word $0200           	                ; NMI at $FFFA
-.word RESET				                ; RESET at $FFFC
-.word $0203           	                ; IRQ at $FFFE
+.word RESET                             ; 65816 COP       at $FFE4 
+.word $0203                             ; 65816 BREAK
+.word RESET                             ; 65816 ABORT
+.word $0200                             ; 65816 NMI
+.word $0000                             ; 65816 UNUSED
+.word $0203                             ; 65816 IRQ
+.word $0000                             ; PADDING
+.word $0000                             ; PADDING
+.word RESET                             ;  6502 COP at $FFF4
+.word $0203                             ;  6502 BREAK (UNUSED)
+.word RESET                             ;  6502 ABORT at $FFF8
+.word $0200           	                ;  6502 NMI at $FFFA
+.word RESET				                ;  6502 RESET at $FFFC
+.word $0203           	                ;  6502 IRQ at $FFFE
 
