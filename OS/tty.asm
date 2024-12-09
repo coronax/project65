@@ -66,22 +66,54 @@
 ; Write A to the write buffer
 ; Note that this doesn't test if there's enough room.
 ; Modifies X
+.if 0
 .macro WRITEBUFFER buffername
 		LDX wrptr buffername
 		STA buffername, X
 		INC wrptr buffername
 		RMB7 wrptr buffername
 .endmacro
+.endif
+
+.if 1
+; version without rmb7 - larger but faster
+.macro WRITEBUFFER buffername
+		LDX wrptr buffername
+		STA buffername, X
+		
+		txa
+		inc
+		and #$7F
+		sta wrptr buffername
+.endmacro
+.endif
 
 ; Reads from the read buffer to A.
 ; doesn't check if there's available data.
 ; Modifies AX
+.if 0
 .macro READBUFFER buffername
 		LDX rdptr buffername
 		LDA buffername, X
 		INC rdptr buffername
 		RMB7 rdptr buffername
 .endmacro
+.endif
+
+.if 1
+; Reads from the read buffer to A.
+; doesn't check if there's available data.
+; Modifies AX
+.macro READBUFFER buffername
+		LDX rdptr buffername
+		LDA buffername, X
+		inx
+		cpx #$80
+		bne l1
+		ldx #0
+l1:		stx rdptr buffername
+.endmacro
+.endif
 
 ; Returns count of items in buffer in A
 ; Uses A
@@ -348,7 +380,10 @@ not_eof2:
         beq HandleBackspace
 
         cmp #13 ; carriage return
-        beq HandleCR
+        ;beq HandleCR
+        bne _next
+        jmp HandleCR
+_next:
 
         cmp #27 ;esc
         beq ReadEscapeSequence
