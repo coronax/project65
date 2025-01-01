@@ -68,74 +68,71 @@ error:
 .scope
 wait:
 			lda	VIA_IFR			; busy wait for IFR bit 1 to go high
-			and	#$2
+			and	#$02
 			beq	wait
-			lda #$02
+			;lda #$02
 			sta VIA_IFR			; Clear IFR bit 1 (A == 2)
 .endscope
 .endmacro
 
 
 
+; Byte to be written is in A
+; We generally keep Port A in read mode, so we need to set it to write mode 
+; and then set it back when we're done.
 .proc WriteByte
 ; problem: how do we make sure CA1 is low before we do this? or are we just safe?
-			ldx 	#$ff		; DDR to write mode
-			stx		VIA_DDRA
+		ldx 	#$ff		; DDR to write mode
+		stx		VIA_DDRA
 
-			sta		VIA_DATAA
+		sta		VIA_DATAA
 
-			lda		#%00001101
-			sta		VIA_PCR		; set CA2 low, CA1 still positive edge trigger
+		lda		#%00001101
+		sta		VIA_PCR			; set CA2 low, CA1 still positive edge trigger
 
-			Wait_CA1 			; CA1 high means peripheral has read the data
+		Wait_CA1 				; CA1 high means peripheral has read the data
 
-			stz		VIA_DDRA	; back to read mode
-			ldx		#%00001110
-			stx		VIA_PCR		; set CA2 high, CA1 negative
+		stz		VIA_DDRA		; back to read mode
+		ldx		#%00001110
+		stx		VIA_PCR			; set CA2 high, CA1 negative edge trigger
 
-			pha
-			Wait_CA1 			; CA1 trigger means peripheral has read the data
-			pla
-			;lda #'a'
-			;jsr PutChar
+		;pha
+		Wait_CA1 				; CA1 trigger means peripheral is ready
+		;pla
+		;lda #'a'
+		;jsr PutChar
 
 
-			nop 
-			nop
-			nop
+		;nop 
+		;nop
+		;nop
 
-			rts
+		rts
 .endproc
 
 
 
 .proc ReadByte
 ; problem: how do we make sure CA1 is low before we do this? or are we just safe?
-			;ldx 	#$ff		; DDR to write mode
-			;stx		VIA_DDRA
+		lda		#%00001101
+		sta		VIA_PCR			; set CA2 low, CA1 still positive edge trigger
 
-			;sta		VIA_DATAA
+		Wait_CA1 				; CA1 high means peripheral has prepared the data
 
-			lda		#%00001101
-			sta		VIA_PCR		; set CA2 low, CA1 still positive edge trigger
+		ldx		VIA_DATAA
 
-			Wait_CA1 			; CA1 high means peripheral has prepared the data
+		lda		#%00001110
+		sta		VIA_PCR			; set CA2 high, CA1 negative edge trigger
 
-			lda			VIA_DATAA
+		;pha
+		Wait_CA1 				; CA1 trigger means peripheral has released the bus
+		txa
 
-			;stz		VIA_DDRA	; back to read mode
-			ldx		#%00001110
-			stx		VIA_PCR		; set CA2 high, CA1 negative edge trigger
+		;nop
+		;nop 
+		;nop
 
-			pha
-			Wait_CA1 			; CA1 trigger means peripheral has read the data
-			pla
-
-			nop
-			nop 
-			nop
-
-			rts
+		rts
 .endproc
 
 
@@ -143,19 +140,19 @@ wait:
 ; SD_GETC
 ; Read a character from the SD card device.
 ;=============================================================================
-; Get character.  Remember: non-blocking.  Carry is true if a character
-; is ready.  
-; Expects _SETDEVICE to be called to set the channel...
-; Returns the character in A.  If EOF was received, X is $ff and carry is set.
+; Reads a character from the current channel. Non-blocking.
+; * The Arduino side actually does block.
+; If no character is available, returns with carry clear
+; If a character was read, carry is set. A contains the character, X = 0
+; If EOF, carry is set, AX contains $FFFF
 ; Uses A,X
 ;=============================================================================
 .proc SD_GETC
-		;ldx DEVICE_OFFSET
-		;lda DEVTAB + DEVENTRY::CHANNEL,x
 		lda DEVICE_CHANNEL
+		ora #$10
 		jsr	WriteByte
-		lda		#$19		; "gimme a byte" command
-		jsr	WriteByte
+		;lda	#$19		; "gimme a byte" command
+		;jsr	WriteByte
 		jsr	ReadByte		; esc-FF = EOF, esc-0 = none available, esc-esc = escape, rest are chars
 							
 		cmp #$1b	;esc
@@ -165,7 +162,7 @@ wait:
 		beq eof
 		cmp #$00
 		beq nochar
-		; 2nd char wasn't 0 or -1, so return it (was probably an eactual ESC)
+		; 2nd char wasn't 0 or -1, so return it (must've been an actual ESC)
 return_byte:
 		sec 				; set carry to indicate a byte returned
 		ldx #$00
@@ -191,20 +188,20 @@ eof:
 ; Uses A,X
 ;=============================================================================
 .proc SD_PUTC
-			phy					; save y, and save A in y
-			tay
-			;ldx DEVICE_OFFSET
-			;lda DEVTAB + DEVENTRY::CHANNEL,x
-			lda 	DEVICE_CHANNEL
-			jsr WriteByte
-			lda 	#$18 		; "send a byte" command
-			jsr WriteByte
-			tya
-			jsr WriteByte
-			tya					; return character written
-			ply					; restore y
-			rts
+		phy					; save y, and save A in y
+		tay
+		lda DEVICE_CHANNEL
+		ora #$20
+		;jsr WriteByte
+		;lda #$18 		; "send a byte" command
+		jsr WriteByte
+		tya
+		jsr WriteByte
+		tya					; return character written
+		ply					; restore y
+		rts
 .endproc
+
 
 
 ; writes a pointer to SD_PUTC without the trailing 0
@@ -342,10 +339,11 @@ return:		ply						; pull dev channel off of stack
 			pha		; Save whence value for later
 			
 			lda		DEVICE_CHANNEL
+			ora		#$30
 			jsr		WriteByte
 
-			lda		#$1a			; seek command 
-			jsr		WriteByte
+			;lda		#$1a			; seek command 
+			;jsr		WriteByte
 
 			; offset is 4-bytes - little endian
 			lda 	ptr1
