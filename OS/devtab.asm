@@ -31,7 +31,7 @@
 
 .include "os3.inc"
 .import SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC
-.import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_TELL
+.import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
 .import TTY_IOCTL, TTY_GETC, TTY_OPEN, TTY_CLOSE
 .import _print_string, hexits
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
@@ -72,15 +72,15 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 .align 16
 .byte 0, 0	; SD Card IO Channel
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, DEFAULT_READ
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, SD_READ
 
 .align 16
 .byte 1, 0	; SD Card Data Channel 1
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, DEFAULT_READ
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
 
 .align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, DEFAULT_READ
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
 
 .align 16
 .byte 0, 0	; TTY Device; attaches on top of serial device
@@ -352,9 +352,9 @@ doneoutputstring:
 
 
 ; Read bytes from the current device. 
-; top of stack points to a buffer. AX contains # of bytes to be read.
+; ptr1 points to a buffer. Top of stack contains # of bytes to be read.
 ; Returns number of bytes read in AX. 0 for end of file,
-; -1 for error.
+; or a P65 error value
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
 .proc DEFAULT_READ
 		pla				; Recover # of bytes to read from stack

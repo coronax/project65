@@ -35,7 +35,7 @@
 ; for more info.
 
 .include "OS3.inc"
-.export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK
+.export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
 .import _print_hex, _print_char, dev_write_hex
 
 ;.pc02
@@ -378,3 +378,76 @@ ret_err:
 			rts
 .endproc
 
+
+
+; Read bytes from the current device. 
+; ptr1 points to a buffer. Top of stack contains # of bytes to be read.
+; Returns number of bytes read in AX. 0 for end of file,
+; or a P65 error value for error.
+; Uses AXY, tmp1, tmp2, tmp3, ptr1
+.proc SD_READ
+		pla				; Recover # of bytes to read from stack
+		plx
+        cmp #0
+        bne nonzero
+        cpx #0
+        bne nonzero
+        rts             ; count is 0, so we can just return 0.
+nonzero:
+        sta tmp1        ; low byte of count
+        stx tmp2        ; high byte of count
+
+		; Send the read command: channel/command, lsb of count, msb of count:
+		lda DEVICE_CHANNEL
+		ora #$40
+		jsr	WriteByte
+		lda tmp1
+		jsr WriteByte
+		lda tmp2
+		jsr WriteByte
+
+        stz tmp3        ; initialize read count
+        ldy #0
+ 
+loop:
+        ;jsr dev_getc
+		jsr ReadByte
+		cmp #$1b		; check for escape code
+		bne save_byte
+		jsr ReadByte 	; 2nd byte of escape code
+		cmp #$00		; no char available yet
+		beq loop
+		cmp #$ff		; EOF
+		beq done
+		cmp #'e'		; error code follows
+		beq error
+		; fall through to save_byte
+save_byte:
+
+        ;bcc loop
+        ;cpx #$FF
+        ;beq done        ; $FF in X means we received EOF
+        sta (ptr1),y    ; save character to buffer
+        iny
+        bne test_count
+        inc tmp3        ; if Y rolled over, we need to increment
+        inc ptr1+1      ; tmp3 and ptr1+1
+
+test_count:
+        ; if y/tmp3 == tmp1/tmp2, we are ready to exit.
+        cpy tmp1
+        bne loop
+        lda tmp3
+        cmp tmp2
+        bne loop
+
+error:
+		jsr ReadByte	; get error value
+		ldx #$FF
+		rts
+
+done:
+        tya             ; load read count into AX
+        ldx tmp3
+        rts
+.endproc

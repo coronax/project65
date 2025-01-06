@@ -253,6 +253,12 @@ class FileIO
         read_position = 0;
         write_position = 1;
     }
+    virtual void  read()
+    {
+        WriteByte((char)0x1b);
+        WriteByte('e');
+        WriteByte((char)P65_ENOSYS);
+    }
 };
 
 
@@ -270,6 +276,7 @@ class DirectoryReader2 : public FileIO
 {
     File dir;
     File entry;
+    bool dir_open;
     //  int read_position = 0;
     //  int write_position = 0;
     //  struct dirent dirent = {};
@@ -284,6 +291,7 @@ class DirectoryReader2 : public FileIO
         // we need to rewind the directory here. otherwise, the
         // listing will start after the last file we opened.
         dir.rewindDirectory();
+        dir_open = true;
     }
 
     ~DirectoryReader2()
@@ -317,6 +325,43 @@ class DirectoryReader2 : public FileIO
         ++read_position;
         return retval;
     }
+
+    void read() override
+    {
+        int count;
+        unsigned char* c = (unsigned char*)&count;
+        c[0] = ReadByte();
+        c[1] = ReadByte();
+
+        if (!dir_open)
+        {
+            WriteByte((char)0x1b);
+            WriteByte('e');
+            WriteByte(P65_EBADF);
+            return;
+        }
+
+        for (int i = 0; i < count; ++i)
+        {
+            int ch = getChar();//file.read();
+            if (ch == -1)
+            {
+                WriteByte((char)0x1b);  // Send EOF: esc -1
+                WriteByte((char)0xff);
+                break;
+            }
+            else if (ch == 0x1b)  // escape character
+            {
+                WriteByte((char)0x1b);
+                WriteByte((char)0x1b);  // Send escaped escape
+            }
+            else
+            {
+                WriteByte((char)ch);
+            }
+        }
+
+    }
 };
 
 
@@ -349,9 +394,9 @@ class FileRW : public FileIO
         if (!file_open)
             return -1;
         int retval;
-        if (read_position < write_position)
-            retval = buffer[read_position++];
-        else
+        //if (read_position < write_position)
+        //    retval = buffer[read_position++];
+        //else
             retval = file.read();
         return retval;
     }
@@ -443,6 +488,43 @@ class FileRW : public FileIO
             WriteByte(P65_EINVAL);
         }
     }
+
+    void read() override
+    {
+        int count;
+        unsigned char* c = (unsigned char*)&count;
+        c[0] = ReadByte();
+        c[1] = ReadByte();
+
+        if (!file_open)
+        {
+            WriteByte((char)0x1b);
+            WriteByte('e');
+            WriteByte(P65_EBADF);
+            return;
+        }
+
+        for (int i = 0; i < count; ++i)
+        {
+            int ch = file.read();
+            if (ch == -1)
+            {
+                WriteByte((char)0x1b);  // Send EOF: esc -1
+                WriteByte((char)0xff);
+                break;
+            }
+            else if (ch == 0x1b)  // escape character
+            {
+                WriteByte((char)0x1b);
+                WriteByte((char)0x1b);  // Send escaped escape
+            }
+            else
+            {
+                WriteByte((char)ch);
+            }
+        }
+
+    }
 };
 
 
@@ -472,7 +554,8 @@ class CommandResponse : public FileIO
         ;
     }
 
-    virtual int getChar() override
+private:
+    int nextChar()
     {
         int retval = -1;
         if (read_position < write_position)
@@ -482,7 +565,54 @@ class CommandResponse : public FileIO
         }
         return retval;
     }
+public:
+
+    virtual int getChar() override
+    {
+        return nextChar();
+/*
+        int retval = -1;
+        if (read_position < write_position)
+        {
+            retval = buffer[read_position];
+            ++read_position;
+        }
+        return retval;
+*/
+    }
+
+    void read() override
+    {
+        int count;
+        unsigned char* c = (unsigned char*)&count;
+        c[0] = ReadByte();
+        c[1] = ReadByte();
+
+        for (int i = 0; i < count; ++i)
+        {
+            int ch = nextChar();//file.read();
+            if (ch == -1)
+            {
+                WriteByte((char)0x1b);  // Send EOF: esc -1
+                WriteByte((char)0xff);
+                break;
+            }
+            else if (ch == 0x1b)  // escape character
+            {
+                WriteByte((char)0x1b);
+                WriteByte((char)0x1b);  // Send escaped escape
+            }
+            else
+            {
+                WriteByte((char)ch);
+            }
+        }
+
+    }
 };
+
+
+constexpr int FileIOSize = max (sizeof(FileIO), max (sizeof(FileRW), max (sizeof (CommandResponse), sizeof(DirectoryReader2))));
 
 
 FileIO* channel_io[MAX_CHANNEL + 1] = {};
@@ -884,6 +1014,20 @@ void loop()
 
     switch (command)
     {
+        case 0x40:  // 6502 sent a multibyte read command
+            {
+                if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
+                {
+                    // we really want to send an error code here. how do we encode it?
+                    // how about esc e CODE?
+                    WriteByte ((char)0x1b);
+                    WriteByte ('e');
+                    WriteByte ((char)P65_EINVAL);
+                }
+                else
+                    channel_io[channel]->read();
+            }
+            break;
         case 0x30:  // 6502 sending a seek command
             {
                 if ((channel < 1) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
