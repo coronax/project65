@@ -440,7 +440,7 @@ test_count:
         lda tmp3
         cmp tmp2
         bne loop
-
+		bra done
 error:
 		jsr ReadByte	; get error value
 		ldx #$FF
