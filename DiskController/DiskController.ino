@@ -165,6 +165,9 @@ void WriteByte(char data)
     while (digitalRead(ca2) == HIGH)
         ;
 
+    // pin 2 is input, rest of port d is output
+    //DDRD = 0b11111011;
+    //DDRB |= 0b00000011;
     pinMode(data0, OUTPUT);
     pinMode(data1, OUTPUT);
     pinMode(data2, OUTPUT);
@@ -200,6 +203,9 @@ void WriteByte(char data)
     signal_received = 0;
     interrupts();
 
+    // all inputs except ca1 (pin 0)
+    //DDRD = 0b00000001;
+    //DDRB &= 0b11111100;
     pinMode(data0, INPUT);
     pinMode(data1, INPUT);
     pinMode(data2, INPUT);
@@ -255,6 +261,21 @@ class FileIO
     }
     virtual void  read()
     {
+        ReadByte(); // read 2 bytes of count
+        ReadByte();
+        WriteByte((char)0x1b);
+        WriteByte('e');
+        WriteByte((char)P65_ENOSYS);
+    }
+    virtual void write()
+    {
+        // some dubious type punning here
+        int count;
+        unsigned char* c = (unsigned char*)&count;
+        c[0] = ReadByte();
+        c[1] = ReadByte();
+        for (int i = 0; i < count; ++i)
+            ReadByte();
         WriteByte((char)0x1b);
         WriteByte('e');
         WriteByte((char)P65_ENOSYS);
@@ -506,6 +527,7 @@ class FileRW : public FileIO
 
         for (int i = 0; i < count; ++i)
         {
+            // CJ, is there any benefit to using the buffer read method?
             int ch = file.read();
             if (ch == -1)
             {
@@ -524,6 +546,33 @@ class FileRW : public FileIO
             }
         }
 
+    }
+
+
+    void write() override
+    {
+        int count;
+        unsigned char* c = (unsigned char*)&count;
+        c[0] = ReadByte();
+        c[1] = ReadByte();
+
+        if (!file_open)
+        {
+            WriteByte((char)0x1b);
+            WriteByte('e');
+            WriteByte(P65_EBADF);
+            return;
+        }
+
+        int written_count = 0;
+        for (int i = 0; i < count; ++i)
+        {
+            char ch = ReadByte();
+            written_count += file.write (ch);
+        }
+
+        WriteByte (((unsigned char*)&written_count)[0]);
+        WriteByte (((unsigned char*)&written_count)[1]);
     }
 };
 
@@ -1020,12 +1069,28 @@ void loop()
                 {
                     // we really want to send an error code here. how do we encode it?
                     // how about esc e CODE?
+                    // We really neeed to read the entire command before sending a response
                     WriteByte ((char)0x1b);
                     WriteByte ('e');
                     WriteByte ((char)P65_EINVAL);
                 }
                 else
                     channel_io[channel]->read();
+            }
+            break;
+        case 0x50:  // 6502 sent a multibyte write command
+            {
+                if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
+                {
+                    // we really want to send an error code here. how do we encode it?
+                    // how about esc e CODE?
+                    // We actually need to read the whole response.
+                    WriteByte ((char)0x1b);
+                    WriteByte ('e');
+                    WriteByte ((char)P65_EINVAL);
+                }
+                else
+                    channel_io[channel]->write();
             }
             break;
         case 0x30:  // 6502 sending a seek command

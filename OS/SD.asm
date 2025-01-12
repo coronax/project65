@@ -35,10 +35,10 @@
 ; for more info.
 
 .include "OS3.inc"
-.export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
+.export SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK
+.export SD_READ, SD_WRITE
 .import _print_hex, _print_char, dev_write_hex
 
-;.pc02
 		
 .proc SD_IOCTL
 			; Only current IOCTL for SD is init, A=0
@@ -452,5 +452,66 @@ done:
 ;		jsr ReadByte	; get error value
 ;		ldx #$FF
 ;		rts
+
+.endproc
+
+
+
+; Write bytes to the current device. 
+; ptr1 points to a buffer. Top of stack contains count of bytes to write.
+; The count is signed, and we should probably check that it's positive.
+; Returns count of bytes written in AX, or a P65 error value for error.
+; Uses AXY, tmp1, tmp2, tmp3, ptr1
+; The comparison in here could probably be made faster because we don't
+; actually need to keep track of total count. We always send the entire
+; buffer to the device & let it decide what to do about it.
+.proc SD_WRITE
+		pla				; Recover # of bytes to write from stack
+		plx
+        cmp #0
+        bne nonzero
+        cpx #0
+        bne nonzero
+        rts             ; count is 0, so we can just return 0.
+nonzero:
+        sta tmp1        ; low byte of count
+        stx tmp2        ; high byte of count
+
+		; Send the write command: channel/command, lsb of count, msb of count:
+		lda DEVICE_CHANNEL
+		ora #$50
+		jsr	WriteByte
+		lda tmp1
+		jsr WriteByte
+		lda tmp2
+		jsr WriteByte
+
+        stz tmp3        ; initialize read count
+        ldy #0
+ 
+loop:
+		lda (ptr1),y
+		jsr WriteByte
+        iny
+        bne test_count
+        inc tmp3        ; if Y rolled over, we need to increment
+        inc ptr1+1      ; tmp3 and ptr1+1
+test_count:
+        ; if y/tmp3 == tmp1/tmp2, we are ready to exit.
+        cpy tmp1
+        bne loop
+        lda tmp3
+        cmp tmp2
+        bne loop
+		; fall through to done
+done:
+		; Finally, we're going to read either an error code or
+		; # bytes written from the SD card, return in AX
+		jsr ReadByte
+		pha
+		jsr ReadByte
+		tax
+		pla
+        rts
 
 .endproc

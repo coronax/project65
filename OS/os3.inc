@@ -27,7 +27,7 @@
 ;; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED 
 ;; OF THE POSSIBILITY OF SUCH DAMAGE.
 
-.pc02			; allow 65c02 instructions
+.p816			; allow 65c02 instructions
 .feature string_escapes
 
 BEL             = $07	; bell
@@ -58,6 +58,7 @@ O_EXCL          = $80
 	CLOSE	  .word
 	SEEK	  .word
 	READ	  .word
+	WRITE     .word
 .endstruct
 
 ; Control block for the TTY device. The tricky part is that it needs to be 

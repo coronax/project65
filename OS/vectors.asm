@@ -30,7 +30,7 @@
 .import _commandline, _print_string, _print_hex, _read_char, _print_char
 .import setdevice, dev_open, dev_close, dev_putc, dev_getc
 .import set_filename, set_filemode, openfile
-.import dev_ioctl, dev_seek, dev_read, dev_get_status
+.import dev_ioctl, dev_seek, dev_read, dev_write, dev_get_status
 .import mkdir, rmdir, rm, cp, mv, stat
 .import RESET
 ;.export PutChar, GetChar, SET_FILENAME, SET_FILEMODE, DEV_OPEN, DEV_CLOSE, DEV_PUTC, DEV_GETC
@@ -39,6 +39,7 @@
 
 
 .segment "kernal_table"
+DEV_WRITE:      jmp dev_write           ; FF9C
 FS_STAT:        jmp stat                ; FF9F
 FS_MKDIR:       jmp mkdir               ; FFA2
 FS_RMDIR:       jmp rmdir               ; FFA5

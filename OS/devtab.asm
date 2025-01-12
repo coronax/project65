@@ -31,13 +31,13 @@
 
 .include "os3.inc"
 .import SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC
-.import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
+.import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_WRITE
 .import TTY_IOCTL, TTY_GETC, TTY_OPEN, TTY_CLOSE
 .import _print_string, hexits
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
 .export dev_close, init_devices, openfile
 .export dev_seek, dev_get_status
-.export dev_read, dev_writestr, dev_write_hex
+.export dev_read, dev_write, dev_writestr, dev_write_hex
 
 
 ;CURRENT_DEVICE    = $0220
@@ -59,36 +59,37 @@
 ;	CLOSE	  .word
 ;   SEEK      .word
 ;   READ      .word
+;   WRITE     .word
 ;.endstruct
 	
 .rodata
 .asciiz"rodata"
 
 
-.align 16
+;.align 16
 DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 .byte 0, 0	; Serial Port
-.word SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NOSEEK, DEFAULT_READ
+.word SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC, NULLFN, NULLFN, NOSEEK, DEFAULT_READ, DEFAULT_WRITE
 
-.align 16
+;.align 16
 .byte 0, 0	; SD Card IO Channel
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, SD_READ
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, SD_READ, DEFAULT_WRITE
 
-.align 16
+;.align 16
 .byte 1, 0	; SD Card Data Channel 1
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_WRITE
 
-.align 16
+;.align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_WRITE
 
-.align 16
+;.align 16
 .byte 0, 0	; TTY Device; attaches on top of serial device
-.word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NOSEEK, DEFAULT_READ
+.word TTY_IOCTL, TTY_GETC, NULLFN, TTY_OPEN, TTY_CLOSE, NOSEEK, DEFAULT_READ, DEFAULT_WRITE
 
-.align 16
+;.align 16
 .byte 0, 0	; Empty Device 2
-.word NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NOSEEK, NULLFN
+.word NULLFN, NULLFN, NULLFN, NULLFN, NULLFN, NOSEEK, NULLRW, NULLRW
 DEVTAB_TEMPLATE_END:
 
 .code
@@ -96,6 +97,15 @@ DEVTAB_TEMPLATE_END:
 ; A generic empty function. Any devtab entry that doesn't need a specific
 ; handler can point to this function. If called, returns P65_ENOSYS.
 .proc		NULLFN
+			lda #P65_ENOSYS
+			ldx #$FF
+			rts
+.endproc
+
+; An empty function that does stack cleanup required by read/write
+.proc NULLRW
+			pla
+			pla
 			lda #P65_ENOSYS
 			ldx #$FF
 			rts
@@ -136,11 +146,11 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Modifies AX
 .proc 		setdevice
 			sta		CURRENT_DEVICE
-			clc
-			rol
-			rol
-			rol
-			rol
+			asl						; x2
+			asl						; x4
+			asl						; x8
+			adc 	CURRENT_DEVICE	; x9
+			asl						; x18
 			sta		DEVICE_OFFSET
 			tax
 			lda		DEVTAB + DEVENTRY::CHANNEL, X
@@ -229,13 +239,27 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Read bytes from the current device. 
 ; ptr1 points to a buffer. AX contains # of bytes to be read.
 ; Returns number of bytes read in AX. 0 for end of file,
-; -1 for error.
+; or a P65 error code
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
 .proc dev_read
 			phx	; note that actual implementations have to read # bytes from stack
+			and #$7F ; truncate count to max signed int size
 			pha
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::READ,X)
+.endproc
+
+
+; Write bytes to the current device. 
+; ptr1 points to a buffer. AX contains # of bytes to write.
+; Returns number of bytes written in AX, or a P65 error code.
+; Uses AXY, tmp1, tmp2, tmp3, ptr1
+.proc dev_write
+			phx	; note that actual implementations have to read count from stack
+			and #$7F ; truncate count to max signed int size
+			pha
+			ldx DEVICE_OFFSET
+			jmp (DEVTAB + DEVENTRY::WRITE,X)
 .endproc
 
 
@@ -264,6 +288,9 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 .endproc
 
 
+; CJ This should be moved into Filesystem and be given some smarts
+; to be able to open non-disk devices based on filename 
+; (e.g. "SERIAL:9600" or something like that.)
 ; openfile is meant to be called by application code.
 ; pass the name of a file an AX, mode in Y
 ; returns a file handle in A, or -1 on failure
@@ -396,6 +423,52 @@ done:
         rts
 .endproc
 
+
+
+; Write bytes to the current device. 
+; ptr1 points to a buffer. Top of stack contains # of bytes to write.
+; Returns number of bytes written in AX or a P65 error value
+; Uses AXY, tmp1, tmp2, tmp3, ptr1
+; This default implementation uses dev_putc, which can't actually
+; report failure, so will always appear to write count bytes.
+; Be advised, and address that as we become more of a real operating
+; system.
+.proc DEFAULT_WRITE
+		pla				; Recover # of bytes to read from stack
+		plx
+        cmp #0
+        bne nonzero
+        cpx #0
+        bne nonzero
+        rts             ; count is 0, so we can just return 0.
+nonzero:
+        sta tmp1        ; low byte of count
+        stx tmp2        ; high byte of count
+
+        stz tmp3        ; initialize read count
+        ldy #0
+ 
+loop:
+        lda (ptr1),y    ; save character to buffer
+        jsr dev_putc
+        iny
+        bne test_count
+        inc tmp3        ; if Y rolled over, we need to increment
+        inc ptr1+1      ; tmp3 and ptr1+1
+
+test_count:
+        ; if y/tmp3 == tmp1/tmp2, we are ready to exit.
+        cpy tmp1
+        bne loop
+        lda tmp3
+        cmp tmp2
+        bne loop
+
+done:
+        tya             ; load write count into AX
+        ldx tmp3
+        rts
+.endproc
 
 
 
