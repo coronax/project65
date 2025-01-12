@@ -219,7 +219,7 @@ stat_command:
 
 	; an error happened.  Print the command response & return to command line
 error:
-        ldx #0
+        ldx #0  ; shouldn't this be FF for consistency?
         rts
 		
 open_success:
@@ -244,22 +244,38 @@ loop:
         sta ptr1        ; But also modifies it, so we keep our
         lda ptr2h       ; count in ptr2.
         sta ptr1h
-        lda #0
-        ldx #4 ; read 1k at a time?
+        lda #$00
+        ldx #$04 ; read 1k at a time?
         jsr dev_read    ; 0 in AX indicates EOF
+        ;bra fake_error ; bail after 1st read, see what memory looks like
+        ; can we print out the return code of read? is there an unexpected error?
+        ;phx
+        ;pha
+        ;txa
+        ;jsr _print_hex
+        ;pla
+        ;pha
+        ;jsr _print_hex
+        ;pla
+        ;plx
 
+        ; Check return value of read. $0000 in AX indicates EOF, so we're done.
+        ; An $FF in X indicates an error. Anything else is # bytes read which
+        ; we'll add to ptr2.
         cpx #0
         bne check_for_error
         cmp #0
         beq done        ; Read end of file
 check_for_error:
         cpx #$ff        ; $FFFF in AX indicates an error
-        bne inc_loop
-        cmp #$ff
-        bne inc_loop
-        ; there was an error during the read. Return P65_EIO
-        lda #P65_EIO
-        bra error
+        beq error
+        ;bne inc_loop
+        ;cmp #$ff
+        ;bne inc_loop
+        ; there was an error during the read. Return error value
+;fake_error:
+        ;lda #P65_EIO
+        ;bra error
 inc_loop:
         clc             ; add the current value in AX to ptr1/ptr1h.
         adc ptr2        ; Usually this will just be $0400 except for

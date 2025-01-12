@@ -382,6 +382,7 @@ ret_err:
 
 ; Read bytes from the current device. 
 ; ptr1 points to a buffer. Top of stack contains # of bytes to be read.
+; The count is signed, and we should probably check that it's positive.
 ; Returns number of bytes read in AX. 0 for end of file,
 ; or a P65 error value for error.
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
@@ -410,7 +411,6 @@ nonzero:
         ldy #0
  
 loop:
-        ;jsr dev_getc
 		jsr ReadByte
 		cmp #$1b		; check for escape code
 		bne save_byte
@@ -420,13 +420,14 @@ loop:
 		cmp #$ff		; EOF
 		beq done
 		cmp #'e'		; error code follows
-		beq error
+		;beq error
 		; fall through to save_byte
-save_byte:
+		bne save_byte	
+		jsr ReadByte	; get error value & return
+		ldx #$FF
+		rts
 
-        ;bcc loop
-        ;cpx #$FF
-        ;beq done        ; $FF in X means we received EOF
+save_byte:
         sta (ptr1),y    ; save character to buffer
         iny
         bne test_count
@@ -440,14 +441,16 @@ test_count:
         lda tmp3
         cmp tmp2
         bne loop
-		bra done
-error:
-		jsr ReadByte	; get error value
-		ldx #$FF
-		rts
-
+		; fall through to done
+		;bra done
 done:
         tya             ; load read count into AX
         ldx tmp3
         rts
+
+;error:
+;		jsr ReadByte	; get error value
+;		ldx #$FF
+;		rts
+
 .endproc
