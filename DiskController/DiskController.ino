@@ -221,6 +221,36 @@ void WriteByte(char data)
 
 
 
+/* Writes a character with standard escaping. -1 is treated as EOF. */
+void WriteEscapedChar (int ch)
+{
+    if (ch == -1)
+    {
+        WriteByte((char)0x1b);  // Send EOF: esc -1
+        WriteByte((char)0xff);
+    }
+    else if (ch == 0x1b)  // escape character
+    {
+        WriteByte((char)0x1b);
+        WriteByte((char)0x1b);  // Send escaped escape
+    }
+    else
+    {
+        WriteByte((char)ch);
+    }
+}
+
+
+
+void WriteEscapedError (uint8_t error_code)
+{
+    WriteByte((char)0x1b);
+    WriteByte('e');
+    WriteByte((char)error_code);
+}
+
+
+
 const int buflen = 96;
 char command_buffer[buflen];
 int command_buffer_index = 0;
@@ -263,9 +293,7 @@ class FileIO
     {
         ReadByte(); // read 2 bytes of count
         ReadByte();
-        WriteByte((char)0x1b);
-        WriteByte('e');
-        WriteByte((char)P65_ENOSYS);
+        WriteEscapedError(P65_ENOSYS);
     }
     virtual void write()
     {
@@ -276,9 +304,8 @@ class FileIO
         c[1] = ReadByte();
         for (int i = 0; i < count; ++i)
             ReadByte();
-        WriteByte((char)0x1b);
-        WriteByte('e');
-        WriteByte((char)P65_ENOSYS);
+        WriteByte((char)P65_EBADF);
+        WriteByte((char)0xFF);
     }
 };
 
@@ -356,30 +383,16 @@ class DirectoryReader2 : public FileIO
 
         if (!dir_open)
         {
-            WriteByte((char)0x1b);
-            WriteByte('e');
-            WriteByte(P65_EBADF);
+            WriteEscapedError(P65_EBADF);
             return;
         }
 
         for (int i = 0; i < count; ++i)
         {
-            int ch = getChar();//file.read();
+            int ch = getChar();
+            WriteEscapedChar(ch);
             if (ch == -1)
-            {
-                WriteByte((char)0x1b);  // Send EOF: esc -1
-                WriteByte((char)0xff);
                 break;
-            }
-            else if (ch == 0x1b)  // escape character
-            {
-                WriteByte((char)0x1b);
-                WriteByte((char)0x1b);  // Send escaped escape
-            }
-            else
-            {
-                WriteByte((char)ch);
-            }
         }
 
     }
@@ -519,9 +532,7 @@ class FileRW : public FileIO
 
         if (!file_open)
         {
-            WriteByte((char)0x1b);
-            WriteByte('e');
-            WriteByte(P65_EBADF);
+            WriteEscapedError(P65_EBADF);
             return;
         }
 
@@ -529,21 +540,9 @@ class FileRW : public FileIO
         {
             // CJ, is there any benefit to using the buffer read method?
             int ch = file.read();
+            WriteEscapedChar (ch);
             if (ch == -1)
-            {
-                WriteByte((char)0x1b);  // Send EOF: esc -1
-                WriteByte((char)0xff);
                 break;
-            }
-            else if (ch == 0x1b)  // escape character
-            {
-                WriteByte((char)0x1b);
-                WriteByte((char)0x1b);  // Send escaped escape
-            }
-            else
-            {
-                WriteByte((char)ch);
-            }
         }
 
     }
@@ -558,9 +557,10 @@ class FileRW : public FileIO
 
         if (!file_open)
         {
-            WriteByte((char)0x1b);
-            WriteByte('e');
-            WriteByte(P65_EBADF);
+            for (int i = 0; i < count; ++i)
+                ReadByte();
+            WriteByte((char)P65_EBADF);
+            WriteByte((char)0xFF);
             return;
         }
 
@@ -619,15 +619,6 @@ public:
     virtual int getChar() override
     {
         return nextChar();
-/*
-        int retval = -1;
-        if (read_position < write_position)
-        {
-            retval = buffer[read_position];
-            ++read_position;
-        }
-        return retval;
-*/
     }
 
     void read() override
@@ -639,22 +630,10 @@ public:
 
         for (int i = 0; i < count; ++i)
         {
-            int ch = nextChar();//file.read();
+            int ch = nextChar();
+            WriteEscapedChar(ch);
             if (ch == -1)
-            {
-                WriteByte((char)0x1b);  // Send EOF: esc -1
-                WriteByte((char)0xff);
                 break;
-            }
-            else if (ch == 0x1b)  // escape character
-            {
-                WriteByte((char)0x1b);
-                WriteByte((char)0x1b);  // Send escaped escape
-            }
-            else
-            {
-                WriteByte((char)ch);
-            }
         }
 
     }
@@ -1070,9 +1049,7 @@ void loop()
                     // we really want to send an error code here. how do we encode it?
                     // how about esc e CODE?
                     // We really neeed to read the entire command before sending a response
-                    WriteByte ((char)0x1b);
-                    WriteByte ('e');
-                    WriteByte ((char)P65_EINVAL);
+                    WriteEscapedError(P65_EINVAL);
                 }
                 else
                     channel_io[channel]->read();
@@ -1085,9 +1062,7 @@ void loop()
                     // we really want to send an error code here. how do we encode it?
                     // how about esc e CODE?
                     // We actually need to read the whole response.
-                    WriteByte ((char)0x1b);
-                    WriteByte ('e');
-                    WriteByte ((char)P65_EINVAL);
+                    WriteEscapedError(P65_EINVAL);
                 }
                 else
                     channel_io[channel]->write();
@@ -1131,27 +1106,13 @@ void loop()
                 else
                 {
                     // invalid channel. Write an EOF.
-                    WriteByte((char)0x1b);  // esc
-                    WriteByte((char)0xff);  // -1
+                    WriteEscapedChar(-1);
                 }
             }
             else
             {
                 int ch = channel_io[channel]->getChar();
-                if (ch == -1)
-                {
-                    WriteByte((char)0x1b);  // Send EOF: esc -1
-                    WriteByte((char)0xff);
-                }
-                else if (ch == 0x1b)  // escape character
-                {
-                    WriteByte((char)0x1b);
-                    WriteByte((char)0x1b);  // Send escaped escape
-                }
-                else
-                {
-                    WriteByte((char)ch);
-                }
+                WriteEscapedChar(ch);
             }
             break;
         case 0x20:  // 6502 wants to write a byte
@@ -1180,22 +1141,18 @@ void loop()
                     else if (!strcmp(command_buffer, "rm"))
                     {
                         SetCommandResponse(HandleDeleteFile(command_buffer));
-                        //channel_io[0] = new CommandResponse (response_code);
                     }
                     else if (!strcmp(command_buffer, "rmdir"))
                     {
                         SetCommandResponse(HandleDeleteDirectory(command_buffer));
-                        //channel_io[0] = new CommandResponse (response_code);
                     }
                     else if (!strcmp(command_buffer, "mkdir"))
                     {
                         SetCommandResponse(HandleMkdir(command_buffer));
-                        //channel_io[0] = new CommandResponse (response_code);
                     }
                     else if (!strcmp(command_buffer, "cp"))
                     {
                         SetCommandResponse(HandleCopyFile(command_buffer));
-                        //channel_io[0] = new CommandResponse (response_code);
                     }
                     else if (!strcmp(command_buffer, "stat"))
                     {
