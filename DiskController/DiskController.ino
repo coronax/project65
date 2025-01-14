@@ -54,6 +54,7 @@
 #include <string.h>
 #include <errno.h>
 
+
 // P65 uses the values that cc65 defines in its fcntl.h. These differ
 // from Arduino SDK, Linux, etc.
 constexpr uint8_t P65_O_RDONLY = 0x01;
@@ -251,31 +252,28 @@ void WriteEscapedError (uint8_t error_code)
 
 
 
-const int buflen = 96;
-char command_buffer[buflen];
-int command_buffer_index = 0;
-//char command_output[buflen];
-bool command_buffer_overrun = false;
 
 
 class FileIO
 {
   public:
-    int read_position = 0;
-    int write_position = 0;
-    char buffer[30];
+//    int read_position = 0;
+//    int write_position = 0;
+//    char buffer[30];
 
     virtual ~FileIO()
     {
         ;
     }
+    // 6502 wants to read a char
     virtual int getChar()
     {
-        return P65_ENOSYS;
+        return -1;
     }
-    virtual int putChar(char)
+    // 6502 writes a char
+    virtual void putChar(char)
     {
-        return P65_ENOSYS;
+        ;
     }
     virtual void seek()
     {
@@ -285,16 +283,16 @@ class FileIO
         ReadByte();
         ReadByte();
         ReadByte();
-        buffer[0] = P65_ENOSYS;
-        read_position = 0;
-        write_position = 1;
+        WriteByte (P65_ENOSYS);
     }
+    // 6502 reads n chars
     virtual void  read()
     {
         ReadByte(); // read 2 bytes of count
         ReadByte();
         WriteEscapedError(P65_ENOSYS);
     }
+    // 6502 writes n chars
     virtual void write()
     {
         // some dubious type punning here
@@ -325,10 +323,11 @@ class DirectoryReader2 : public FileIO
     File dir;
     File entry;
     bool dir_open;
-    //  int read_position = 0;
-    //  int write_position = 0;
+    int read_position = 0;
+    int write_position = 0;
     //  struct dirent dirent = {};
     //  unsigned char* buffer = (unsigned char*)&dirent;
+    char buffer[sizeof(struct dirent)];
     struct dirent* dirent = (struct dirent*)buffer;
   public:
 
@@ -406,15 +405,11 @@ class FileRW : public FileIO
     File file;
     int file_open;
 
-    //  int read_position;
-    //  int write_position;
-    //  char buffer[5];
-
     FileRW(File f)
     {
         file = f;
         file_open = true;
-        read_position = write_position = 0;
+        //read_position = write_position = 0;
     }
 
     virtual ~FileRW()
@@ -435,14 +430,12 @@ class FileRW : public FileIO
         return retval;
     }
 
-    int putChar(char ch) override
+    void putChar(char ch) override
     {
         if (file_open)
         {
-            return file.write(ch);
+            file.write(ch);
         }
-        else
-            return -1;
     }
 
     void seek() override
@@ -578,35 +571,49 @@ class FileRW : public FileIO
 
 
 
-class CommandResponse : public FileIO
+class CommandHandler : public FileIO
 {
-  public:
-    //int read_position;
-    //int write_position;
-    //char buffer[30];
-    CommandResponse(const char* output, int len)
+public:
+    static constexpr int buflen = 96;
+    char command_buffer[buflen];
+    int command_buffer_index = 0;
+    bool command_buffer_overrun = false;
+
+public:
+    int read_position = 0;
+    int write_position = 0;
+    char buffer[30];
+
+    CommandHandler() = default;
+
+    void SetCommandResponse(const char* output, int len)
     {
         memcpy(buffer, output, len);
         read_position = 0;
         write_position = len;
     }
 
-    CommandResponse(char code)
+    void SetCommandResponse(char code)
     {
         buffer[0] = code;
         read_position = 0;
         write_position = 1;
     }
 
-    virtual ~CommandResponse()
-    {
-        ;
-    }
-
 private:
     int nextChar()
     {
         int retval = -1;
+
+        if (command_buffer_overrun)
+        {
+            // On the first read after a command buffer overrun, we reset the
+            // command buffer. Is this sufficient to restore things after some
+            // miscommunication? Almost certainly not.
+            command_buffer_overrun = false;
+            command_buffer_index = 0;
+        }
+
         if (read_position < write_position)
         {
             retval = buffer[read_position];
@@ -616,7 +623,63 @@ private:
     }
 public:
 
-    virtual int getChar() override
+    void putChar(char ch) override
+    {
+        // the command is a 0-terminated array of 0-terminated strings. So we look for
+        // two consecutive 0s to begin processing.
+        if (command_buffer_index < buflen)
+            command_buffer[command_buffer_index++] = ch;
+        else
+            command_buffer_overrun = true;
+        if ((ch == 0) && (command_buffer_index > 1) && (command_buffer[command_buffer_index - 2] == 0))
+        {
+            bool length_error = (command_buffer_index >= buflen);
+            //Serial.print ("command buffer is '");
+            //Serial.print (command_buffer);
+            //Serial.println ("'\n");
+            command_buffer_index = 0;
+
+            if (length_error)
+            {
+                SetCommandResponse(P65_EINVAL);
+            }
+            else if (!strcmp(command_buffer, "rm"))
+            {
+                SetCommandResponse(HandleDeleteFile(command_buffer));
+            }
+            else if (!strcmp(command_buffer, "rmdir"))
+            {
+                SetCommandResponse(HandleDeleteDirectory(command_buffer));
+            }
+            else if (!strcmp(command_buffer, "mkdir"))
+            {
+                SetCommandResponse(HandleMkdir(command_buffer));
+            }
+            else if (!strcmp(command_buffer, "cp"))
+            {
+                SetCommandResponse(HandleCopyFile(command_buffer));
+            }
+            else if (!strcmp(command_buffer, "stat"))
+            {
+                HandleStat(command_buffer);
+            }
+            else if (!strncmp(command_buffer, "o", 1))
+            {
+                SetCommandResponse(HandleFileOpen(command_buffer));
+            }
+            else if (!strncmp(command_buffer, "c", 1))
+            {
+                HandleFileClose(command_buffer);
+            }
+            else
+            {
+                SetCommandResponse (P65_EBADCMD);
+                //channel_io[0] = new CommandResponse(P65_EBADCMD);
+            }
+        }
+    }
+
+    int getChar() override
     {
         return nextChar();
     }
@@ -635,26 +698,52 @@ public:
             if (ch == -1)
                 break;
         }
+    }
 
+    void write() override
+    {
+        // CJ BUG. It would be nice if this stopped processing
+        // when we reached the end of a command, and return the
+        // actual # of bytes processed.
+        int count;
+        unsigned char* c = (unsigned char*)&count;
+        c[0] = ReadByte();
+        c[1] = ReadByte();
+
+        for (int i = 0; i < count; ++i)
+        {
+            char ch = ReadByte();
+            putChar(ch);
+        }
+
+        WriteByte (((unsigned char*)&count)[0]);
+        WriteByte (((unsigned char*)&count)[1]);
     }
 };
 
 
-constexpr int FileIOSize = max (sizeof(FileIO), max (sizeof(FileRW), max (sizeof (CommandResponse), sizeof(DirectoryReader2))));
+constexpr int FileIOSize = max (sizeof(FileIO), max (sizeof(FileRW), max (sizeof (CommandHandler), sizeof(DirectoryReader2))));
 
 
-FileIO* channel_io[MAX_CHANNEL + 1] = {};
 
+// for use with an invalid channel # or null channel_io member.
+FileIO default_io;
+CommandHandler command_handler;
+
+// channel IO handlers. Channel 0 handler is permanent. Data channels
+// will have handlers emplaced & removed when files are opened and
+// closed.
+FileIO* channel_io[MAX_CHANNEL + 1] = {&command_handler, nullptr, nullptr};
 
 
 void SetCommandResponse(const char* output, int len)
 {
-    channel_io[0] = new CommandResponse(output, len);
+    command_handler.SetCommandResponse(output, len);
 }
 
 void SetCommandResponse(char code)
 {
-    channel_io[0] = new CommandResponse(code);
+    command_handler.SetCommandResponse(code);
 }
 
 
@@ -1031,154 +1120,53 @@ char HandleFileClose(char* command_buffer)
 }
 
 
+class FileIO* GetIOHandler (char channel)
+{
+    if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
+        return &default_io;
+    else
+        return channel_io[channel];
+}
+
 
 void loop()
 {
     char protocol = ReadByte();
     char channel = protocol & 0x0f;
     char command = protocol & 0xf0;
-    //char channel = ReadByte();
-    //char command = ReadByte();
 
     switch (command)
     {
         case 0x40:  // 6502 sent a multibyte read command
             {
-                if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
-                {
-                    // we really want to send an error code here. how do we encode it?
-                    // how about esc e CODE?
-                    // We really neeed to read the entire command before sending a response
-                    WriteEscapedError(P65_EINVAL);
-                }
-                else
-                    channel_io[channel]->read();
+                auto handler = GetIOHandler(channel);
+                handler->read();
             }
             break;
         case 0x50:  // 6502 sent a multibyte write command
             {
-                if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
-                {
-                    // we really want to send an error code here. how do we encode it?
-                    // how about esc e CODE?
-                    // We actually need to read the whole response.
-                    WriteEscapedError(P65_EINVAL);
-                }
-                else
-                    channel_io[channel]->write();
+                auto handler = GetIOHandler(channel);
+                handler->write();
             }
             break;
         case 0x30:  // 6502 sending a seek command
             {
-                if ((channel < 1) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
-                {
-                    // What's the best way to recover from this? If the rest of the message is
-                    // there we need to read it. But what if it isn't?
-                    ReadByte();
-                    ReadByte();
-                    ReadByte();
-                    ReadByte();
-                    ReadByte();
-                    WriteByte((char)P65_EINVAL);
-                }
-                else
-                    channel_io[channel]->seek();
+                auto handler = GetIOHandler(channel);
+                handler->seek();
             }
             break;
         case 0x10:  // 6502 wants to read a byte
-            if ((channel == 0) && command_buffer_overrun)
             {
-                // On the first read after a command buffer overrun, we reset the
-                // command buffer.
-                command_buffer_overrun = false;
-                command_buffer_index = 0;
-                channel_io[0] = nullptr;
-            }
-
-            if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
-            {
-                if (channel == 0)
-                {
-                    // command channel. Write an EINVAL because something has clearly gone wrong
-                    // with understanding a message from the computer. Probably a buffer overrun.
-                    WriteByte((char)P65_EINVAL);
-                }
-                else
-                {
-                    // invalid channel. Write an EOF.
-                    WriteEscapedChar(-1);
-                }
-            }
-            else
-            {
-                int ch = channel_io[channel]->getChar();
+                auto handler = GetIOHandler(channel);
+                int ch = handler->getChar();
                 WriteEscapedChar(ch);
             }
             break;
         case 0x20:  // 6502 wants to write a byte
-            char c = ReadByte();
-            if (channel == 0)
             {
-                // the command is a 0-terminated array of 0-terminated strings.
-                if (command_buffer_index < buflen)
-                    command_buffer[command_buffer_index++] = c;
-                else
-                    command_buffer_overrun = true;
-                if ((c == 0) && (command_buffer_index > 1) && (command_buffer[command_buffer_index - 2] == 0))
-                {
-                    bool length_error = (command_buffer_index >= buflen);
-                    //Serial.print ("command buffer is '");
-                    //Serial.print (command_buffer);
-                    //Serial.println ("'\n");
-                    command_buffer_index = 0;
-                    delete (channel_io[0]);
-                    channel_io[0] = nullptr;
-
-                    if (length_error)
-                    {
-                        SetCommandResponse(P65_EINVAL);
-                    }
-                    else if (!strcmp(command_buffer, "rm"))
-                    {
-                        SetCommandResponse(HandleDeleteFile(command_buffer));
-                    }
-                    else if (!strcmp(command_buffer, "rmdir"))
-                    {
-                        SetCommandResponse(HandleDeleteDirectory(command_buffer));
-                    }
-                    else if (!strcmp(command_buffer, "mkdir"))
-                    {
-                        SetCommandResponse(HandleMkdir(command_buffer));
-                    }
-                    else if (!strcmp(command_buffer, "cp"))
-                    {
-                        SetCommandResponse(HandleCopyFile(command_buffer));
-                    }
-                    else if (!strcmp(command_buffer, "stat"))
-                    {
-                        HandleStat(command_buffer);
-                    }
-                    else if (!strncmp(command_buffer, "o", 1))
-                    {
-                        SetCommandResponse(HandleFileOpen(command_buffer));
-                    }
-                    else if (!strncmp(command_buffer, "c", 1))
-                    {
-                        HandleFileClose(command_buffer);
-                    }
-                    else
-                    {
-                        channel_io[0] = new CommandResponse(P65_EBADCMD);
-                    }
-                }
-            }
-            else
-            {
-                if ((channel >= MIN_CHANNEL) && (channel <= MAX_CHANNEL) && channel_io[channel])
-                {
-                    channel_io[channel]->putChar(c);
-                }
-                // if the channel is invalid, the only thing to do is ignore the input.
+                char c = ReadByte();
+                auto handler = GetIOHandler(channel);
+                handler->putChar(c);
             }
             break;
     }
