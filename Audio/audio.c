@@ -216,7 +216,7 @@ int LoadSong (char* filename)
 {
     int result = 0;
     FILE* f;
-    int len;
+    int len, read_len;
     int version = 0;
     int address = 0; // save unfortunately inserts the load address. hm.
 
@@ -234,24 +234,30 @@ int LoadSong (char* filename)
         fread(&address,2,1,f);
         fread(&version,2,1,f);
         fread(&len, 2,1,f);
-        //printf ("version is %d\r\n", version);
-        //printf ("len is %d\r\n", len);
+        printf ("version is %d\r\n", version);
+        printf ("len is %d\r\n", len);
         song = malloc (len * sizeof(struct Span));
         if (song)
         {
-            if (len == fread(song, sizeof(struct Span), len, f))
+            //read_len = fread(song, sizeof(struct Span), len, f);
+            read_len = fread(song, 1, len * sizeof(struct Span), f);
+            if (len * sizeof(struct Span) == read_len)
             {
                 songlen = len;
                 result = 1;
                 printf ("loaded %s; #spans is %d\r\n", filename, songlen);
             }
+            else
+            {
+                printf ("Warning: loaded %d spans, expected %d\r\n", read_len, len * sizeof(struct Span));
+            }
         }
         fclose(f);
     }
-    //else
-    //{
-    //    warn ("%s", filename);
-    //}
+    else
+    {
+        warn ("%s", filename);
+    }
 
     return result;
 }
