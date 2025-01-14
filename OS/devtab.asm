@@ -33,7 +33,7 @@
 .import SERIAL_IOCTL, SERIAL_GETC, SERIAL_PUTC
 .import SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_WRITE
 .import TTY_IOCTL, TTY_GETC, TTY_OPEN, TTY_CLOSE
-.import _print_string, hexits
+.import _print_string, hexits, _print_hex
 .export dev_ioctl, dev_getc, dev_putc, setdevice, set_filename, set_filemode, dev_open
 .export dev_close, init_devices, openfile
 .export dev_seek, dev_get_status
@@ -73,7 +73,7 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 ;.align 16
 .byte 0, 0	; SD Card IO Channel
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, SD_READ, DEFAULT_WRITE
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, NOSEEK, SD_READ, SD_WRITE
 
 ;.align 16
 .byte 1, 0	; SD Card Data Channel 1
@@ -81,7 +81,7 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 ;.align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_WRITE
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_READ
 
 ;.align 16
 .byte 0, 0	; TTY Device; attaches on top of serial device
@@ -242,9 +242,16 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; or a P65 error code
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
 .proc dev_read
-			phx	; note that actual implementations have to read # bytes from stack
-			and #$7F ; truncate count to max signed int size
-			pha
+			; Note that actual implementations read count from the stack.
+			tay			; save low byte
+			txa			; high byte to a
+			and #$7F	; clear high bit - truncate count to max signed int
+			pha			; push to stack
+			tya			; retrieve low byte
+			pha			; and push
+			;phx	; note that actual implementations have to read # bytes from stack
+			;and #$7F ; truncate count to max signed int size
+			;pha
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::READ,X)
 .endproc
@@ -255,9 +262,16 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Returns number of bytes written in AX, or a P65 error code.
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
 .proc dev_write
-			phx	; note that actual implementations have to read count from stack
-			and #$7F ; truncate count to max signed int size
-			pha
+			; Note that actual implementations read count from the stack.
+			tay			; save low byte
+			txa			; high byte to a
+			and #$7F	; clear high bit - truncate count to max signed int
+			pha			; push to stack
+			tya			; retrieve low byte
+			pha			; and push
+			;phx	; note that actual implementations have to read # bytes from stack
+			;and #$7F ; truncate count to max signed int size
+			;pha
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::WRITE,X)
 .endproc
