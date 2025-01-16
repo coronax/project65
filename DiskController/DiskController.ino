@@ -42,12 +42,16 @@
 // Todo: Management of current directory, cwd
 // support, etc.
 
-// Todo: Refactor to get rid of dynamic allocation.
-
 // Todo: detect SD Card removal/insertion?
 
 // Todo: Because P:65 seek uses a signed int, we should probably fail to
 //       open any file larger than 2^31 - 1 bytes.
+
+// Todo: File objects are being passed around by value and don't have 
+//       destructors. That kind of works because they just hold a pointer
+//       to another SdFile struct that's part of the SdFat lib. BUT that
+//       means we probably ought to be careful about making sure we
+//       close File objects. We can't depend on RAII to do this for us.
 
 #include <SD.h>
 #include <stdlib.h>
@@ -118,44 +122,32 @@ void ErrorFlash()
     }
 }
 
-
+/*
 void InterruptHandler()
 {
     //++signal_received;
     signal_received = 1;
 }
+*/
+
 
 char ReadByte()
 {
-    while (digitalRead(ca2) == HIGH)
+    while (PIND & 4) // wait for CA2 to go low
         ;
 
-    char result = (digitalRead(data0) == HIGH) ? 1 : 0;
-    result += (digitalRead(data1) == HIGH) ? 2 : 0;
-    result += (digitalRead(data2) == HIGH) ? 4 : 0;
-    result += (digitalRead(data3) == HIGH) ? 8 : 0;
-    result += (digitalRead(data4) == HIGH) ? 16 : 0;
-    result += (digitalRead(data5) == HIGH) ? 32 : 0;
-    result += (digitalRead(data6) == HIGH) ? 64 : 0;
-    result += (digitalRead(data7) == HIGH) ? 128 : 0;
+    char result = 
+        ((PIND & 0b00000010) >> 1) |
+        ((PIND & 0b11111000) >> 2) |
+        ((PINB & 0b00000011) << 6);
 
-    noInterrupts();
-    signal_received = 0;
-    interrupts();
+    PORTD |= 1; // Set CA1 high
 
-    digitalWrite(ca1, HIGH);
+    // Wait for CA2 to go high
+    while ((PIND & 4) == 0)
+        ;
 
-    //  while (digitalRead(ca2) == LOW)
-    //    ;
-
-    // we'll do this to make sure we don't somehow miss the positive edge of ca2
-    do {
-    } while (signal_received == 0);
-    noInterrupts();
-    signal_received = 0;
-    interrupts();
-
-    digitalWrite(ca1, LOW);
+    PORTD &= 0b11111110;  // set CA1 low
 
     return result;
 }
@@ -163,61 +155,27 @@ char ReadByte()
 
 void WriteByte(char data)
 {
-    while (digitalRead(ca2) == HIGH)
+    while (PIND & 4) // wait for CA2 to go low
         ;
 
-    // pin 2 is input, rest of port d is output
-    //DDRD = 0b11111011;
-    //DDRB |= 0b00000011;
-    pinMode(data0, OUTPUT);
-    pinMode(data1, OUTPUT);
-    pinMode(data2, OUTPUT);
-    pinMode(data3, OUTPUT);
-    pinMode(data4, OUTPUT);
-    pinMode(data5, OUTPUT);
-    pinMode(data6, OUTPUT);
-    pinMode(data7, OUTPUT);
+    DDRD = 0b11111011;
+    DDRB |= 0b00000011;
 
-    digitalWrite(data0, data & 0x01);
-    digitalWrite(data1, data & 0x02);
-    digitalWrite(data2, data & 0x04);
-    digitalWrite(data3, data & 0x08);
-    digitalWrite(data4, data & 0x10);
-    digitalWrite(data5, data & 0x20);
-    digitalWrite(data6, data & 0x40);
-    digitalWrite(data7, data & 0x80);
-
-    noInterrupts();
-    signal_received = 0;
-    interrupts();
+    PORTD = ((data & 0b00000001) << 1) | ((data & 0b11111110) << 2);
+    PORTB = (PORTB & 0b11111100) | (data >> 6);
 
     // data is ready to be read, de-assert wait
-    digitalWrite(ca1, HIGH);
+    PORTD |= 1; // Set CA1 high
 
-    //  while (digitalRead(ca2) == LOW)
-    //    ;
+    // Wait for CA2 to go high
+    while ((PIND & 4) == 0)
+        ;
 
-    // we'll do this to make sure we don't somehow miss the positive edge of ca2
-    do {
-    } while (signal_received == 0);
-    noInterrupts();
-    signal_received = 0;
-    interrupts();
+    // Set data lines to inputs.
+    DDRD = 0b00000001;
+    DDRB &= 0b11111100;
 
-    // all inputs except ca1 (pin 0)
-    //DDRD = 0b00000001;
-    //DDRB &= 0b11111100;
-    pinMode(data0, INPUT);
-    pinMode(data1, INPUT);
-    pinMode(data2, INPUT);
-    pinMode(data3, INPUT);
-    pinMode(data4, INPUT);
-    pinMode(data5, INPUT);
-    pinMode(data6, INPUT);
-    pinMode(data7, INPUT);
-
-
-    digitalWrite(ca1, LOW);
+    PORTD &= 0b11111110; // Set CA1 low
 }
 
 
@@ -257,9 +215,6 @@ void WriteEscapedError (uint8_t error_code)
 class FileIO
 {
   public:
-//    int read_position = 0;
-//    int write_position = 0;
-//    char buffer[30];
 
     virtual ~FileIO()
     {
@@ -277,13 +232,18 @@ class FileIO
     }
     virtual void seek()
     {
-        // read the reset of the command (5 bytes)
+        // read the rest of the command (5 bytes)
         ReadByte();
         ReadByte();
         ReadByte();
         ReadByte();
         ReadByte();
         WriteByte (P65_ENOSYS);
+    }
+    virtual void flush()
+    {
+        // Flush any buffered writes
+        ;
     }
     // 6502 reads n chars
     virtual void  read()
@@ -341,7 +301,7 @@ class DirectoryReader2 : public FileIO
         dir_open = true;
     }
 
-    ~DirectoryReader2()
+    ~DirectoryReader2() override
     {
         dir.close();
         entry.close();
@@ -401,41 +361,48 @@ class DirectoryReader2 : public FileIO
 
 class FileRW : public FileIO
 {
-  public:
+// CJ BUG all the file open stuff here is probably not needed.
+private:
     File file;
-    int file_open;
+    bool use_buffered_io = false;
+    uint8_t mode = 0; // file mode expressed using P65_O_* / cc65 mode values.
+    
+    static constexpr int buflen = 32;
+    unsigned char buffer[buflen];   // for buffered reads or writes - but not both!
+    int read_position = 0;
+    int write_position = 0; 
 
-    FileRW(File f)
+public:
+
+    FileRW(File f, uint8_t _mode)
     {
         file = f;
-        file_open = true;
-        //read_position = write_position = 0;
+        mode = _mode;
+        // only use FileRW's buffer if the file is readonly or
+        // writeonly.
+        use_buffered_io = ((mode & P65_O_RDWR) != P65_O_RDWR);
     }
 
-    virtual ~FileRW()
+    ~FileRW() override
     {
-        if (file_open)
-            file.close();
+        flush();
+        file.close();
     }
 
     int getChar() override
     {
-        if (!file_open)
-            return -1;
-        int retval;
-        //if (read_position < write_position)
-        //    retval = buffer[read_position++];
-        //else
-            retval = file.read();
-        return retval;
+        if (use_buffered_io)
+            return nextchar();
+        else
+            return file.read();
     }
 
     void putChar(char ch) override
     {
-        if (file_open)
-        {
+        if (use_buffered_io)
+            wrchar(ch);
+        else
             file.write(ch);
-        }
     }
 
     void seek() override
@@ -451,17 +418,14 @@ class FileRW : public FileIO
         c[0] = ReadByte();
         c[1] = 0;
 
-        if (!file_open)
-        {
-            WriteByte(P65_EBADF);
-            return;
-        }
+        flush(); // flush any buffered writes
 
         if (whence == P65_SEEK_CUR)
         {
             long int current = (long int)file.position();
             if (file.seek((uint32_t)(current + offset)))
             {
+                read_position = write_position = 0;
                 WriteByte(0);
                 long int pos = file.position();
                 char* buf = (char*)(&pos);
@@ -480,6 +444,7 @@ class FileRW : public FileIO
             long int end = (long int)file.size();
             if (file.seek((uint32_t)(end + offset)))
             {
+                read_position = write_position = 0;
                 WriteByte(0);
                 long int pos = file.position();
                 char* buf = (char*)(&pos);
@@ -497,6 +462,7 @@ class FileRW : public FileIO
         {
             if (file.seek((uint32_t)offset))
             {
+                read_position = write_position = 0;
                 WriteByte(0);
                 long int pos = file.position();
                 char* buf = (char*)(&pos);
@@ -516,6 +482,8 @@ class FileRW : public FileIO
         }
     }
 
+
+
     void read() override
     {
         int count;
@@ -523,23 +491,37 @@ class FileRW : public FileIO
         c[0] = ReadByte();
         c[1] = ReadByte();
 
-        if (!file_open)
+        if (use_buffered_io)
         {
-            WriteEscapedError(P65_EBADF);
-            return;
+            for (int i = 0; i < count; ++i)
+            {
+                // CJ, is there any benefit to using the buffer read method? Yes!
+                int ch = nextchar();
+                WriteEscapedChar (ch);
+                if (ch == -1)
+                    break;
+            }
         }
-
-        for (int i = 0; i < count; ++i)
+        else
         {
-            // CJ, is there any benefit to using the buffer read method?
-            int ch = file.read();
-            WriteEscapedChar (ch);
-            if (ch == -1)
-                break;
+            for (int i = 0; i < count; ++i)
+            {
+                int ch = file.read();
+                WriteEscapedChar (ch);
+                if (ch == -1)
+                    break;
+            }
         }
-
     }
 
+    void flush() override
+    {
+        if ((mode & P65_O_RDWR) == P65_O_WRONLY)
+        {
+            file.write (buffer, write_position);
+            write_position = 0;
+        }
+    }
 
     void write() override
     {
@@ -548,41 +530,77 @@ class FileRW : public FileIO
         c[0] = ReadByte();
         c[1] = ReadByte();
 
-        if (!file_open)
-        {
-            for (int i = 0; i < count; ++i)
-                ReadByte();
-            WriteByte((char)P65_EBADF);
-            WriteByte((char)0xFF);
-            return;
-        }
-
         int written_count = 0;
-        for (int i = 0; i < count; ++i)
+        if (use_buffered_io)
         {
-            char ch = ReadByte();
-            written_count += file.write (ch);
+            // write-only files use buffered write
+            for (int i = 0; i < count; ++i)
+            {
+                char ch = ReadByte();
+                written_count += wrchar(ch);
+            }
         }
-
+        else
+        {
+            // read-write files don't use buffer
+            for (int i = 0; i < count; ++i)
+            {
+                char ch = ReadByte();
+                written_count += file.write (ch);
+            }
+        }
         WriteByte (((unsigned char*)&written_count)[0]);
         WriteByte (((unsigned char*)&written_count)[1]);
     }
+
+private:
+
+    // buffered char read. Only use for read-only files.
+    inline int nextchar()
+    {
+        if (read_position >= write_position)
+        {
+            read_position = 0;
+            write_position = file.read(buffer, buflen);
+            if (write_position == 0)
+                return -1;
+        }
+
+        return buffer[read_position++];
+    }
+
+    // buffered char write - only for writeonly files
+    inline int wrchar(char ch)
+    {
+        buffer[write_position++] = ch;
+        if (write_position == buflen)
+        {
+            // Is there a realistic concern here of write not writing the
+            // full amount? If so, what do we do? Return 0?
+            file.write(buffer, write_position);
+            write_position = 0;
+        }
+        return 1;
+    }
+
+
 };
 
 
 
 class CommandHandler : public FileIO
 {
-public:
+private:
     static constexpr int buflen = 96;
     char command_buffer[buflen];
     int command_buffer_index = 0;
     bool command_buffer_overrun = false;
 
-public:
     int read_position = 0;
     int write_position = 0;
     char buffer[30];
+
+public:
 
     CommandHandler() = default;
 
@@ -722,7 +740,7 @@ public:
 };
 
 
-constexpr int FileIOSize = max (sizeof(FileIO), max (sizeof(FileRW), max (sizeof (CommandHandler), sizeof(DirectoryReader2))));
+constexpr int FileIOSize = max (sizeof(FileIO), max (sizeof(FileRW), sizeof(DirectoryReader2)));
 
 
 
@@ -734,7 +752,7 @@ CommandHandler command_handler;
 // will have handlers emplaced & removed when files are opened and
 // closed.
 FileIO* channel_io[MAX_CHANNEL + 1] = {&command_handler, nullptr, nullptr};
-
+char ChannelHandlerBuffer[2][FileIOSize];
 
 void SetCommandResponse(const char* output, int len)
 {
@@ -745,6 +763,47 @@ void SetCommandResponse(char code)
 {
     command_handler.SetCommandResponse(code);
 }
+
+// OK, I was having trouble getting placement new to compile so I added this.
+// I'm really quite alarmed right now.
+void *operator new(size_t size, char* c) {
+  return c;
+}
+
+template<class T, typename... Args>
+void SetChannel(int channel, Args&&... args)
+{
+    // Am I safe without std::forward on args? I think it just amounts to a wierd static cast
+    if ((channel >= MIN_CHANNEL) && (channel <= MAX_CHANNEL))
+    {
+        // destruct previous channel object
+        if (channel_io[channel])
+        {
+            channel_io[channel]->~FileIO();
+        }
+        // and create new one
+        channel_io[channel] = new((char*)ChannelHandlerBuffer[channel-1]) T(args...);
+    }
+} 
+
+void ClearChannel(int channel)
+{
+    if ((channel >= MIN_CHANNEL) && (channel <= MAX_CHANNEL) && channel_io[channel])
+    {
+        channel_io[channel]->~FileIO();
+        channel_io[channel] = nullptr;
+    }
+} 
+
+class FileIO* GetIOHandler (char channel)
+{
+    if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
+        return &default_io;
+    else
+        return channel_io[channel];
+}
+
+
 
 
 void setup()
@@ -759,7 +818,7 @@ void setup()
     pinMode(data7, INPUT);
     pinMode(ca1, OUTPUT);
     pinMode(ca2, INPUT);
-    attachInterrupt(digitalPinToInterrupt(ca2) /*0*/, InterruptHandler, RISING);
+    //attachInterrupt(digitalPinToInterrupt(ca2) /*0*/, InterruptHandler, RISING);
 
 
     pinMode(13, OUTPUT);
@@ -782,9 +841,9 @@ void setup()
 
 // The values in SD library for mode flags don't match the values used by
 // cc65 and P:65. So we need to translate.
-char TranslateMode(char in)
+uint8_t TranslateMode(uint8_t in)
 {
-    char mode = 0;
+    uint8_t mode = 0;
     if (in & P65_O_RDONLY)
         mode |= O_RDONLY;
     if (in & P65_O_WRONLY)
@@ -874,17 +933,18 @@ char HandleFileOpen(char* command_buffer)
         return P65_EINVAL;
     }
 
-    char mode = command_buffer[2];
-    char sd_mode = TranslateMode(mode);
+    uint8_t mode = command_buffer[2];
+    uint8_t sd_mode = TranslateMode(mode);
 
     char* filename = command_buffer + 3;
 
-    if (mode & P65_O_WRONLY)
+    ClearChannel(channel);
+
+    if (mode & P65_O_WRONLY) // includes read/write
     {
         if ((mode & P65_O_TRUNC) && (SD.exists(filename)))
             SD.remove(filename);
-        delete (channel_io[channel]);
-        File f = SD.open(filename, FILE_WRITE);
+        File f = SD.open(filename, sd_mode/*FILE_WRITE*/);
         if (f)
         {
             if (f.isDirectory())
@@ -895,7 +955,7 @@ char HandleFileOpen(char* command_buffer)
             }
             else
             {
-                channel_io[channel] = new FileRW(f);
+                SetChannel<FileRW>(channel, f, mode);
                 return 1;  // return filetype for regular file
             }
         }
@@ -913,18 +973,17 @@ char HandleFileOpen(char* command_buffer)
         {
             return P65_ENOENT;
         }
-        delete (channel_io[channel]);
         File f = SD.open(filename);
         if (f)
         {
             if (f.isDirectory())
             {
-                channel_io[channel] = new DirectoryReader2(f);
+                SetChannel<DirectoryReader2>(channel, f);
                 return 2;  // return filetype directory
             }
             else
             {
-                channel_io[channel] = new FileRW(f);
+                SetChannel<FileRW>(channel, f, mode);
                 return 1;  // return filetype regular file
             }
         }
@@ -1051,6 +1110,7 @@ char HandleCopyFile(char* command_buffer)
     {
         if (dst.isDirectory())
         {
+            src.close();
             dst.close();
             return P65_EISDIR;
             //      // make up a new destination name and stick it in buffer.
@@ -1114,19 +1174,10 @@ char HandleFileClose(char* command_buffer)
     int channel = command_buffer[1] - 48;  // cheap conversion
     if (channel < MIN_CHANNEL || channel > MAX_CHANNEL)
         return P65_EINVAL;
-    delete (channel_io[channel]);
-    channel_io[channel] = nullptr;
+    ClearChannel(channel);
     return P65_EOK;
 }
 
-
-class FileIO* GetIOHandler (char channel)
-{
-    if ((channel < 0) || (channel > MAX_CHANNEL) || (channel_io[channel] == nullptr))
-        return &default_io;
-    else
-        return channel_io[channel];
-}
 
 
 void loop()

@@ -14,8 +14,8 @@ int test_size = 10 * 1024;
 
 void PerformWriteTest ()
 {
-    char* buffer;
-    int i;
+    register char* buffer;
+    register int i;
     int fd;
     int output_size;
     struct timespec t1, t2;
@@ -26,9 +26,22 @@ void PerformWriteTest ()
         printf ("Unable to allocate %d bytes.\r\n", test_size);
         exit(1);
     }
+
+    // This loop, with mod
+    // No opt, 3.46 s
+    // -O 3.46
+    // -Oirs 3.46
+    // -Oirs with i, buffer in register: 3.46
+    // with just the cast/truncate:
+    // No opt: 1.31 s
+    // -Oirs w registers: 1.31 s
+
+    putchar('*');
     for (i = 0; i < test_size; ++i)
-        buffer[i] = (char)(i%256);
-    
+        //buffer[i] = (char)(i%256); //   3.46 s
+        buffer[i] = (char)i;        //   1.31 s 
+    putchar('*');
+
     fd = open ("ds_test.dat", O_WRONLY | O_CREAT | O_TRUNC);
     if (fd == -1)
     {
@@ -100,7 +113,7 @@ void PerformReadTest ()
     close(fd);
 
     for (i = 0; i < test_size; ++i)
-        if (buffer[i] != (char)(i%256))
+        if (buffer[i] != (char)i)//(i%256))
             ++mismatches;
     if (mismatches != 0)
         printf ("Error: %d mismatches in read data.", mismatches);

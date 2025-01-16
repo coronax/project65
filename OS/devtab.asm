@@ -81,7 +81,7 @@ DEVTAB_TEMPLATE:		; an array of DEVENTRY structs
 
 ;.align 16
 .byte 2, 0	; SD Card Data Channel 2
-.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_READ
+.word SD_IOCTL, SD_GETC, SD_PUTC, SD_OPEN, SD_CLOSE, SD_SEEK, SD_READ, SD_WRITE
 
 ;.align 16
 .byte 0, 0	; TTY Device; attaches on top of serial device
@@ -243,15 +243,13 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
 .proc dev_read
 			; Note that actual implementations read count from the stack.
-			tay			; save low byte
-			txa			; high byte to a
-			and #$7F	; clear high bit - truncate count to max signed int
-			pha			; push to stack
-			tya			; retrieve low byte
-			pha			; and push
-			;phx	; note that actual implementations have to read # bytes from stack
-			;and #$7F ; truncate count to max signed int size
-			;pha
+			cpx #$80	; If the high bit of AX is set, we need to cap the count at 0x7fff
+			bcc ready ; bcc for branch if less than?
+			ldx #$7f
+			lda #$ff
+ready:
+			phx
+			pha
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::READ,X)
 .endproc
@@ -263,15 +261,13 @@ loop:	lda DEVTAB_TEMPLATE-1,X
 ; Uses AXY, tmp1, tmp2, tmp3, ptr1
 .proc dev_write
 			; Note that actual implementations read count from the stack.
-			tay			; save low byte
-			txa			; high byte to a
-			and #$7F	; clear high bit - truncate count to max signed int
-			pha			; push to stack
-			tya			; retrieve low byte
-			pha			; and push
-			;phx	; note that actual implementations have to read # bytes from stack
-			;and #$7F ; truncate count to max signed int size
-			;pha
+			cpx #$80	; If the high bit of AX is set, we need to cap the count at 0x7fff
+			bcc ready ; bcc for branch if less than?
+			ldx #$7f
+			lda #$ff
+ready:
+			phx
+			pha
 			ldx DEVICE_OFFSET
 			jmp (DEVTAB + DEVENTRY::WRITE,X)
 .endproc

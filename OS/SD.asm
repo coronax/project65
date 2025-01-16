@@ -70,7 +70,6 @@ wait:
 			lda	VIA_IFR			; busy wait for IFR bit 1 to go high
 			and	#$02
 			beq	wait
-			;lda #$02
 			sta VIA_IFR			; Clear IFR bit 1 (A == 2)
 .endscope
 .endmacro
@@ -96,16 +95,7 @@ wait:
 		ldx		#%00001110
 		stx		VIA_PCR			; set CA2 high, CA1 negative edge trigger
 
-		;pha
 		Wait_CA1 				; CA1 trigger means peripheral is ready
-		;pla
-		;lda #'a'
-		;jsr PutChar
-
-
-		;nop 
-		;nop
-		;nop
 
 		rts
 .endproc
@@ -124,13 +114,8 @@ wait:
 		lda		#%00001110
 		sta		VIA_PCR			; set CA2 high, CA1 negative edge trigger
 
-		;pha
 		Wait_CA1 				; CA1 trigger means peripheral has released the bus
 		txa
-
-		;nop
-		;nop 
-		;nop
 
 		rts
 .endproc
@@ -389,6 +374,7 @@ ret_err:
 .proc SD_READ
 		pla				; Recover # of bytes to read from stack
 		plx
+
         cmp #0
         bne nonzero
         cpx #0
@@ -442,16 +428,10 @@ test_count:
         cmp tmp2
         bne loop
 		; fall through to done
-		;bra done
 done:
         tya             ; load read count into AX
         ldx tmp3
         rts
-
-;error:
-;		jsr ReadByte	; get error value
-;		ldx #$FF
-;		rts
 
 .endproc
 
